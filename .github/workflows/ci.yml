@@ -50,6 +50,10 @@ jobs:
               json.loads(path.read_text(encoding="utf-8"))
               print("OK", path)
           PY
+      - name: Validate two-service Docker Compose configuration
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
       - name: Ensure no standalone ProntoF UI remains
         run: |
           test ! -e web/index.html
