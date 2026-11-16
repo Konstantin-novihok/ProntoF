@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pwdlib import PasswordHash
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data")).resolve()
@@ -34,7 +34,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "0") == "1"
-MAX_UPLOAD_GB = max(1, int(os.getenv("MAX_UPLOAD_GB", "500")))
+MAX_UPLOAD_GB = min(500, max(1, int(os.getenv("MAX_UPLOAD_GB", "500"))))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_GB * 1024**3
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 CPU_THREADS = max(1, min(4, int(os.getenv("CPU_THREADS", "2"))))
@@ -74,7 +74,7 @@ class Video(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     filename: Mapped[str] = mapped_column(String(255))
     stored_name: Mapped[str] = mapped_column(String(100), unique=True)
-    size_bytes: Mapped[int] = mapped_column(Integer)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc).replace(tzinfo=None))
 
@@ -180,7 +180,7 @@ def require_internal(request: Request):
 
 @app.get("/api/health")
 def health():
-    return {"status":"ok", "app":"ProntoF", "version":"0.1.0", "whisper_model":WHISPER_MODEL, "cpu_threads":CPU_THREADS, "max_upload_gb":MAX_UPLOAD_GB, "languages":LANGUAGES}
+    return {"status":"ok", "app":"ProntoF", "version":"0.1.0", "whisper_model":WHISPER_MODEL, "cpu_threads":CPU_THREADS, "languages":LANGUAGES}
 
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
@@ -287,7 +287,7 @@ async def upload_chunk(upload_id: str, index: int, request: Request, user: User 
     previous_size = part.stat().st_size if part.is_file() else 0
     staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
     if staged_size - previous_size + len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+        raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
     if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
         raise HTTPException(507, "На диске недостаточно места для следующей части загрузки")
     temp.write_bytes(body)
@@ -319,7 +319,7 @@ def complete_upload(upload_id: str, data: UploadComplete, db: Session = Depends(
                 part_size = part.stat().st_size
                 total += part_size
                 if total > MAX_UPLOAD_BYTES:
-                    raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+                    raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
                 with part.open("rb") as source:
                     shutil.copyfileobj(source, output, 4 * 1024 * 1024)
         if total == 0:
@@ -374,7 +374,7 @@ async def internal_upload_chunk(order_id: int, upload_id: str, index: int, reque
     previous_size = part.stat().st_size if part.is_file() else 0
     staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
     if staged_size - previous_size + len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+        raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
     if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
         raise HTTPException(507, "На диске недостаточно места для следующей части")
     temp.write_bytes(body)
@@ -419,7 +419,7 @@ def internal_complete_upload(order_id: int, upload_id: str, data: InternalUpload
                     raise HTTPException(400, f"Не найдена часть загрузки №{index}")
                 part_size = part.stat().st_size
                 if total + part_size > MAX_UPLOAD_BYTES:
-                    raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+                    raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
                 with part.open("rb") as source:
                     shutil.copyfileobj(source, output, length=1024 * 1024)
                 total += part_size
@@ -448,6 +448,72 @@ def internal_complete_upload(order_id: int, upload_id: str, data: InternalUpload
         destination.unlink(missing_ok=True)
         raise
 
+
+class InternalVideoRename(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+
+@app.get("/internal/library")
+def internal_library(request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    videos = db.scalars(select(Video).order_by(Video.created_at.desc())).all()
+    jobs = db.scalars(select(Job).order_by(Job.created_at.desc())).all()
+    latest = {}
+    for job in jobs:
+        latest.setdefault(job.video_id, job)
+    return [{"id": v.id, "filename": v.filename, "size_bytes": v.size_bytes,
+             "created_at": v.created_at.isoformat() + "Z",
+             "order_id": latest[v.id].order_id if v.id in latest else None,
+             "status": latest[v.id].status if v.id in latest else "uploaded"} for v in videos]
+
+@app.get("/internal/videos/{video_id}/source")
+def internal_video_source(video_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(404, "Видео не найдено")
+    path = (VIDEO_DIR / video.stored_name).resolve()
+    if path.parent != VIDEO_DIR.resolve() or not path.is_file():
+        raise HTTPException(404, "Файл видео отсутствует")
+    import mimetypes
+    mime = mimetypes.guess_type(video.filename)[0] or "application/octet-stream"
+    return FileResponse(path, filename=video.filename, media_type=mime, content_disposition_type="attachment")
+
+@app.patch("/internal/videos/{video_id}")
+def internal_video_rename(video_id: str, data: InternalVideoRename, request: Request,
+                          db: Session = Depends(db_session)):
+    require_internal(request)
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(404, "Видео не найдено")
+    filename = clean_filename(data.filename)
+    if not Path(filename).suffix or Path(filename).suffix.lower() != Path(video.filename).suffix.lower():
+        raise HTTPException(400, "Нельзя менять расширение исходного видео")
+    video.filename = filename
+    db.commit()
+    return {"ok": True, "id": video.id, "filename": video.filename}
+
+@app.delete("/internal/videos/{video_id}")
+def internal_video_delete(video_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(404, "Видео не найдено")
+    jobs = db.scalars(select(Job).where(Job.video_id == video_id)).all()
+    if any(job.status == "processing" for job in jobs):
+        raise HTTPException(409, "Нельзя удалить видео во время обработки")
+    job_ids = [job.id for job in jobs]
+    for job in jobs:
+        db.delete(job)
+        shutil.rmtree(JOB_DIR / job.id, ignore_errors=True)
+    if job_ids:
+        for receipt in db.scalars(select(InternalUploadReceipt).where(InternalUploadReceipt.job_id.in_(job_ids))).all():
+            db.delete(receipt)
+    path = (VIDEO_DIR / video.stored_name).resolve()
+    if path.parent == VIDEO_DIR.resolve():
+        path.unlink(missing_ok=True)
+    db.delete(video)
+    db.commit()
+    return {"ok": True, "job_ids": job_ids}
 
 @app.get("/internal/jobs/{job_id}")
 def internal_job_detail(job_id: str, request: Request, db: Session = Depends(db_session)):
