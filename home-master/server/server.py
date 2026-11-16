@@ -1130,7 +1130,11 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
                        or expected_size is None or not expected_size.isdigit()):
         raise HTTPException(400, "Idempotent uploads require X-Content-SHA256 and X-Content-Size")
     ext, kind = check_upload(file.filename, file.content_type)
-    order_folder = os.path.join(DATA_DIR, "orders", str(o.id), "customer", "files")
+    if user.role == EXECUTOR:
+        evidence_folder = "photos" if kind == "image" else "videos" if kind == "video" else "files"
+        order_folder = os.path.join(DATA_DIR, "orders", str(o.id), "execution", str(user.id), evidence_folder)
+    else:
+        order_folder = os.path.join(DATA_DIR, "orders", str(o.id), "customer", "files")
     os.makedirs(order_folder, exist_ok=True)
     name, size = await save_stream(file, order_folder, ext)
     path = os.path.join(order_folder, name)
