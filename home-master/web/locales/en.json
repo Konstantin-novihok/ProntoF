@@ -490,5 +490,8 @@
   "reservation_period": "Reservation period (hours)",
   "reserved_by": "Reserved by",
   "set_expiry": "Set exact expiry",
-  "report_attach_files": "Attach photos/videos"
+  "report_attach_files": "Attach photos/videos",
+  "manufacturer": "Manufacturer",
+  "package_volume": "Package/container volume",
+  "package_unit": "Package volume unit"
 }
