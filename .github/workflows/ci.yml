@@ -23,6 +23,19 @@ jobs:
       - name: Compile both backend codebases
         run: |
           python -m compileall -q server home-master/server
+      - name: Import Home Master API and verify video routes
+        run: |
+          python -m pip install -r home-master/server/requirements.txt
+          mkdir -p "$RUNNER_TEMP/hm-smoke"
+          DATA_DIR="$RUNNER_TEMP/hm-smoke" WEB_DIR="$GITHUB_WORKSPACE/home-master/web" SECRET_KEY="ci-smoke-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-smoke-password" PYTHONPATH="$GITHUB_WORKSPACE/home-master/server" python - <<'PY'
+          import server
+          paths = {route.path for route in server.app.routes}
+          assert "/app" in paths
+          assert "/orders/{oid}/video-processing/uploads/{upload_id}/chunks/{index}" in paths
+          assert "/orders/{oid}/video-processing" in paths
+          assert "/storage/files" in paths
+          print("Home Master API imports and video routes are registered.")
+          PY
       - name: Check Home Master browser JavaScript
         run: |
           set -euo pipefail
