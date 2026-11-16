@@ -39,7 +39,7 @@ ProntoF содержит пользовательское приложение H
 docker compose up -d --build
 ```
 
-Home Master будет доступен на порту `HOME_MASTER_PORT` (по умолчанию 30801). Worker доступен только внутри Docker-сети по имени `prontof-worker:8000`.
+Home Master будет доступен на порту `HOME_MASTER_PORT` (по умолчанию 30802). Worker доступен только внутри Docker-сети по имени `prontof-worker:8000`.
 
 ## APK
 
