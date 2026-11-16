@@ -411,7 +411,7 @@ route('new', async () => {
         h('button', {class:'ghost', onclick: removeVideo, disabled: !D.videoFile}, t('video_remove'))),
       videoInfo, h('label', {}, t('video_target_language')), videoLang),
     h('div', {style: 'margin-top:14px'}, h('button', {onclick: submit}, D.createdOrderId ? t('video_retry_submit') : t('submit'))));
-}, [1, 2, 3, 4, 5, 7]);
+}, [1, 2, 3, 4, 5, 6, 7]);
 
 // ───────────── Пользователи ─────────────
 const EMP_BADGE = (u) => u.employment === 'external' ? h('span', {class: 'badge', style: 'background:var(--warn);color:#fff'}, t('emp_external')) : null;
