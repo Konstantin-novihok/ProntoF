@@ -1002,12 +1002,15 @@ def set_status(oid: int, b: StatusIn, user: User = Depends(current_user), db: Se
     db.commit()
     from collaboration import OrderParticipant
     from storage import sync_user_order_index
+    participant_rows = db.scalars(select(OrderParticipant).where(OrderParticipant.order_id==o.id)).all()
+    participant_ids = {p.user_id for p in participant_rows}
+    active_ids = {p.user_id for p in participant_rows if p.active}
     related = {o.created_by}
     if o.client_id:
         related.add(o.client_id)
-    related.update(db.scalars(select(OrderParticipant.user_id).where(OrderParticipant.order_id==o.id)))
+    related.update(participant_ids)
     for uid in related:
-        sync_user_order_index(db, uid, o, "status_changed", uid in {p.user_id for p in db.scalars(select(OrderParticipant).where(OrderParticipant.order_id==o.id,OrderParticipant.active.is_(True))).all()})
+        sync_user_order_index(db, uid, o, "status_changed", uid not in participant_ids or uid in active_ids)
     return order_out(db, o, user)
 
 
