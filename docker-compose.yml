@@ -10,6 +10,7 @@ services:
       - "8000"
     environment:
       DATA_DIR: /data
+      HOME: /data/argos-home
       SECRET_KEY: ${PRONTOF_SECRET_KEY:?Set PRONTOF_SECRET_KEY in .env}
       OWNER_PASSWORD: ${PRONTOF_OWNER_PASSWORD:?Set PRONTOF_OWNER_PASSWORD in .env}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
