@@ -1,20 +1,26 @@
-name: ProntoF Android APK
+name: Build Home Master Android APK
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "home-master/web/**"
+      - ".github/workflows/android-apk.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-debug-apk:
-    runs-on: ubuntu-latest
+  build-home-master-apk:
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -25,17 +31,27 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build debug APK
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and build tools
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
+
+      - name: Build Home Master debug APK
         working-directory: android
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Verify APK exists
-        run: test -s android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Verify APK
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging android/app/build/outputs/apk/debug/app-debug.apk | grep "package: name='org.prontofix.app.debug'"
 
-      - name: Upload APK artifact
+      - name: Upload Home Master APK
         uses: actions/upload-artifact@v4
         with:
-          name: ProntoF-debug-apk
+          name: HomeMaster-debug-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
