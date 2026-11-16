@@ -10,6 +10,7 @@ services:
       - "8000"
     environment:
       DATA_DIR: /data
+      ORDER_DATA_DIR: /shared
       HOME: /data/argos-home
       SECRET_KEY: ${PRONTOF_SECRET_KEY:?Set PRONTOF_SECRET_KEY in .env}
       OWNER_PASSWORD: ${PRONTOF_OWNER_PASSWORD:?Set PRONTOF_OWNER_PASSWORD in .env}
@@ -22,6 +23,7 @@ services:
       TZ: ${TZ:-Europe/Kyiv}
     volumes:
       - ${PRONTOF_DATA:-./data/prontof}:/data
+      - ${ORDER_SHARED_DATA:-./data/shared}:/shared
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
       interval: 30s
@@ -43,6 +45,7 @@ services:
       - "${HOME_MASTER_PORT:-30801}:8000"
     environment:
       DATA_DIR: /data
+      ORDER_DATA_DIR: /shared
       WEB_DIR: /srv/web
       OWNER_USERNAME: ${OWNER_USERNAME:-owner}
       OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD in .env}
@@ -54,3 +57,4 @@ services:
       PRONTOF_INTERNAL_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
     volumes:
       - ${HOME_MASTER_DATA:-./data/home-master}:/data
+      - ${ORDER_SHARED_DATA:-./data/shared}:/shared
