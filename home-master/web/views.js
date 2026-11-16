@@ -138,6 +138,7 @@ route('order', async (id) => {
   let capabilities = []; try { capabilities = (await api('GET', '/me/capabilities')).capabilities || []; } catch (_) {}
   let participants = []; try { participants = await api('GET', `/orders/${id}/participants`); } catch (_) {}
   let reports = []; try { reports = await api('GET', `/orders/${id}/reports`); } catch (_) {}
+  let reservations = []; try { reservations = await api('GET', `/warehouse/reservations?order_id=${id}`); } catch (_) {}
   let videoJobs = []; try { videoJobs = await api('GET', `/orders/${id}/video-processing`); } catch (e) { /* обработчик недоступен — заказ остаётся доступен */ }
   const reload = () => render();
   const post = guard(async (action, body) => { await api('POST', `/orders/${id}/${action}`, body || {}); reload(); });
@@ -178,6 +179,22 @@ route('order', async (id) => {
       if (uid) { await api('POST', `/orders/${id}/participants`, {executor_id: +uid}); reload(); }
     });
   }
+  if ([1, 2, 3, 7].includes(role)) {
+    act('reserve_material', async () => {
+      const items = await api('GET', '/warehouse/items');
+      const available = items.filter((x) => x.kind === 'material' && (x.available ?? x.in_warehouse) > 0);
+      if (!available.length) throw new Error(t('no_available_stock'));
+      const itemId = await pick(t('reserve_material'), available.map((x) => ({label: `${x.name} — ${num(x.available ?? x.in_warehouse)} ${x.unit}`, value: x.id})));
+      if (!itemId) return;
+      const selected = available.find((x) => x.id === itemId);
+      const v = await formModal(t('reserve_material'), [{key:'qty',label:'qty',type:'number',value:1}]);
+      if (!v) return;
+      const qty = parseFloat(v.qty);
+      if (!(qty > 0) || qty > (selected.available ?? selected.in_warehouse)) throw new Error(t('no_available_stock'));
+      await api('POST','/warehouse/reservations',{item_id:+itemId,order_id:+id,qty});
+      toast(t('saved')); reload();
+    });
+  }
   if (isAdmin()) act('assign_dept', async () => {
     const ds = await api('GET', '/departments');
     const did = await pick(t('assign_dept'), ds.map((x) => ({label: x.name, value: x.id}))); if (did) await post('assign', {department_id: did}); });
@@ -210,6 +227,10 @@ route('order', async (id) => {
       h('span', {class: 'grow'}, p.name + (p.active ? '' : ' · ' + t('assignment_ended')) + ' · ' + (p.method === 'self_claim' ? t('self_assigned') : t('assigned_by_manager'))),
       p.active && (role === 1 || role === 2 || capabilities.includes('order_assign')) ? h('button', {class: 'ghost small', onclick: guard(async () => { await api('DELETE', `/orders/${id}/participants/${p.user_id}`); reload(); })}, t('remove_executor')) : null))
       : h('p', {class:'muted'}, t('no_executors')),
+    reservations.length ? h('h3', {}, t('warehouse_reservations')) : null,
+    ...reservations.map((r) => h('div', {class:'row'},
+      h('span', {class:'grow'}, `${r.item_name}: ${num(r.qty)} · ${r.paid ? t('reservation_paid') : t('reservation_expires') + ': ' + (r.expires_at ? fmtDate(r.expires_at) : '-')}${r.reserved_by ? ' · ' + r.reserved_by : ''}`),
+      !r.paid && (role === 1 || capabilities.includes('reservation_payment_confirm')) ? h('button', {class:'ghost small',onclick:guard(async()=>{await api('POST',`/warehouse/reservations/${r.id}/confirm-payment`,{});reload();})},t('confirm_payment')) : null)),
     reports.length ? h('h3', {}, t('executor_reports')) : null,
     ...reports.map((r) => h('div', {class:'card'},
       h('b', {}, r.executor_name), h('div', {class:'muted small'}, r.status === 'submitted' ? t('report_submitted') : t('report_draft')),
