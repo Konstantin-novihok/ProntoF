@@ -169,7 +169,8 @@ jobs:
           from rendering import voice_for_language
           assert voice_for_language("uk") == "uk_UA-ukrainian_tts-medium"
           assert voice_for_language("ru")
-          assert voice_for_language("bg") is None  # Piper voice is not published for this language
+          assert voice_for_language("bg") == "bg_BG-dimitar-medium"
+          assert voice_for_language("lt") is None and voice_for_language("lv") is None
           print("Worker render routes and Piper voice catalogue loaded.")
           PY
       - name: Check Home Master browser JavaScript
