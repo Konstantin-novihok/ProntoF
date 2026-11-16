@@ -11,10 +11,13 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import wave
 from pathlib import Path
 
 import numpy as np
+
+_RENDER_LOCK = threading.Lock()
 
 VOICE_BY_LANGUAGE = {
     "ar": "ar_JO-kareem-medium",
@@ -99,26 +102,37 @@ def _write_voice_track(segments: list[dict], track_path: Path, duration: float, 
             end = min(duration, float(segment.get("end", start) or start))
             if end <= start:
                 continue
-            buffer = io.BytesIO()
-            with wave.open(buffer, "wb") as wav_out:
-                voice.synthesize_wav(text[:5000], wav_out)
-            buffer.seek(0)
-            with wave.open(buffer, "rb") as wav_in:
-                channels = wav_in.getnchannels()
-                width = wav_in.getsampwidth()
-                rate = wav_in.getframerate()
-                if width != 2 or channels not in (1, 2):
-                    raise RuntimeError("Неожиданный формат WAV от Piper")
-                pcm = np.frombuffer(wav_in.readframes(wav_in.getnframes()), dtype=np.int16)
-            if channels == 2:
-                pcm = pcm.reshape(-1, 2).astype(np.int32).mean(axis=1).astype(np.int16)
-            if rate != sample_rate and len(pcm):
-                target_len = max(1, round(len(pcm) * sample_rate / rate))
-                pcm = np.interp(np.linspace(0, len(pcm) - 1, target_len),
-                                np.arange(len(pcm)), pcm).astype(np.int16)
+            from piper import SynthesisConfig
+            def synthesize(length_scale=None):
+                buffer = io.BytesIO()
+                with wave.open(buffer, "wb") as wav_out:
+                    if length_scale is None:
+                        voice.synthesize_wav(text[:5000], wav_out)
+                    else:
+                        voice.synthesize_wav(text[:5000], wav_out,
+                                             syn_config=SynthesisConfig(length_scale=length_scale))
+                buffer.seek(0)
+                with wave.open(buffer, "rb") as wav_in:
+                    channels = wav_in.getnchannels()
+                    width = wav_in.getsampwidth()
+                    rate = wav_in.getframerate()
+                    if width != 2 or channels not in (1, 2):
+                        raise RuntimeError("Неожиданный формат WAV от Piper")
+                    samples = np.frombuffer(wav_in.readframes(wav_in.getnframes()), dtype=np.int16)
+                if channels == 2:
+                    samples = samples.reshape(-1, 2).astype(np.int32).mean(axis=1).astype(np.int16)
+                if rate != sample_rate and len(samples):
+                    target_len = max(1, round(len(samples) * sample_rate / rate))
+                    samples = np.interp(np.linspace(0, len(samples) - 1, target_len),
+                                        np.arange(len(samples)), samples).astype(np.int16)
+                return samples
+            pcm = synthesize()
             slot_frames = max(1, int((end - start) * sample_rate))
             if len(pcm) > slot_frames:
-                # Keep every translated word; fit the utterance into its Whisper timing window.
+                length_scale = max(0.55, min(1.0, slot_frames / max(1, len(pcm))))
+                pcm = synthesize(length_scale)
+            if len(pcm) > slot_frames:
+                # Last-resort fit for exceptionally long translated phrases.
                 pcm = np.interp(np.linspace(0, len(pcm) - 1, slot_frames),
                                 np.arange(len(pcm)), pcm).astype(np.int16)
             offset = min(total_frames, int(start * sample_rate))
@@ -134,6 +148,11 @@ def _write_voice_track(segments: list[dict], track_path: Path, duration: float, 
 
 
 def render_translated_video(job_id: str):
+    with _RENDER_LOCK:
+        _render_translated_video_locked(job_id)
+
+
+def _render_translated_video_locked(job_id: str):
     import app as worker
 
     work_dir = worker.JOB_DIR / f"render_{job_id}"
@@ -141,6 +160,7 @@ def render_translated_video(job_id: str):
     voice_dir = Path(os.getenv("PIPER_VOICE_DIR", str(worker.DATA_DIR / "piper-voices")))
     result_dir.mkdir(parents=True, exist_ok=True)
     output_path = result_dir / f"{job_id}.mp4"
+    output_path.unlink(missing_ok=True)
     try:
         with worker.SessionLocal() as db:
             job = db.get(worker.Job, job_id)
@@ -158,6 +178,8 @@ def render_translated_video(job_id: str):
             db.commit()
             source_path = worker.resolve_video_path(video)
             segments = json.loads(job.segments_json or "[]")
+            if not segments or any(not str(x.get("translated", "")).strip() for x in segments if str(x.get("text", "")).strip()):
+                raise RuntimeError("Не все сегменты имеют перевод. Исправьте перевод и повторите сборку.")
             target_language = job.target_language
             original_name = video.filename
 
@@ -166,7 +188,7 @@ def render_translated_video(job_id: str):
             raise RuntimeError(f"Для языка {target_language} нет доступной модели Piper")
         duration, has_audio, video_codec = _probe(source_path)
         free_bytes = shutil.disk_usage(result_dir).free
-        required_bytes = max(512 * 1024 * 1024, int(source_path.stat().st_size * 0.25))
+        required_bytes = max(512 * 1024 * 1024, int(source_path.stat().st_size * 1.5))
         if free_bytes < required_bytes:
             raise RuntimeError("Недостаточно свободного места для временного MP4. Освободите место и повторите.")
         model_path = _download_voice(voice_id, voice_dir)
