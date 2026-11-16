@@ -247,6 +247,26 @@ def cancel_reservation(rid:int,user:User=Depends(current_user),db:Session=Depend
  if r.user_id!=user.id and not capability(db,user,"reservation_payment_confirm"):raise HTTPException(403,"Недостаточно прав")
  r.status="cancelled";log(db,user,"reservation_cancelled","reservation",r.id);db.commit();return {"ok":True}
 
+class ExpiryIn(BaseModel):
+ expires_at:Optional[dt.datetime]=None
+
+@router.put("/warehouse/reservations/{rid}/expiry")
+def set_reservation_expiry(rid:int,b:ExpiryIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
+ need(user,OWNER)
+ r=db.get(Reservation,rid)
+ if not r or r.status!="active":raise HTTPException(404,"Активный резерв не найден")
+ if b.expires_at is None:
+  r.expires_at=None
+ else:
+  expiry=b.expires_at
+  if expiry.tzinfo is not None:expiry=expiry.astimezone(dt.timezone.utc).replace(tzinfo=None)
+  if expiry<=now():r.status="expired";r.expires_at=expiry
+  else:r.expires_at=expiry
+  if r.paid_at and expiry>now():r.paid_at=None;r.confirmed_by=None
+ log(db,user,"reservation_expiry_changed","reservation",r.id,f"expires_at={r.expires_at.isoformat() if r.expires_at else 'indefinite'}")
+ db.commit()
+ return r_out(r,db,True)
+
 class PeriodIn(BaseModel):hours:int=Field(ge=1,le=720)
 @router.put("/warehouse/reservations/settings/period")
 def period(b:PeriodIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
