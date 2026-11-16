@@ -4,7 +4,7 @@
 
 ## Состав контейнеров
 
-- `home-master-test` — интерфейс, авторизация, пользователи, заказы, общая библиотека файлов; порт по умолчанию 30801.
+- `home-master-prontof-test` — интерфейс, авторизация, пользователи, заказы, общая библиотека файлов; порт по умолчанию 30802.
 - `prontof-worker-test` — внутренний API и CPU-обработка видео; порт 8000 доступен только сервисам Docker.
 
 ## Каталоги данных
@@ -12,7 +12,7 @@
 Пример для пула `ProntoFix`:
 
 - Home Master: `/mnt/ProntoFix/apps/prontof/home-master-data`
-- ProntoF worker: `/mnt/ProntoFix/apps/prontof/data`
+- ProntoF worker: `/mnt/ProntoFix/apps/prontof/home-master-prontof-data`
 
 Каталоги независимы. Не удаляйте их при обновлении контейнеров.
 
@@ -53,13 +53,13 @@ docker compose ps
 Home Master открывается по адресу:
 
 ```
-http://IP-АДРЕС-NAS:30801/app/
+http://IP-АДРЕС-NAS:30802/app/
 ```
 
 Проверка внутреннего worker из контейнера Home Master:
 
 ```bash
-sudo docker exec home-master-test python -c "import urllib.request; print(urllib.request.urlopen('http://prontof-worker:8000/api/health', timeout=10).read().decode())"
+sudo docker exec home-master-prontof-test python -c "import urllib.request; print(urllib.request.urlopen('http://prontof-worker:8000/api/health', timeout=10).read().decode())"
 ```
 
 У worker нет опубликованного порта на NAS. Если требуется проверить API, делайте это из Docker-сети, а не через отдельную страницу ProntoF.
