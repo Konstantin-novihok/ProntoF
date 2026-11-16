@@ -288,7 +288,8 @@ async def video_original_source(oid:int,job_id:str,user:User=Depends(current_use
                     yield chunk
     import mimetypes
     mime=mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
-    return StreamingResponse(stream(),media_type=mime,headers={"Content-Disposition":f'inline; filename="{row.filename.replace(chr(34), "")}"'})
+    safe_name=re.sub(r'[\r\n"]+', "_", os.path.basename(row.filename))
+    return StreamingResponse(stream(),media_type=mime,headers={"Content-Disposition":f'inline; filename="{safe_name}"'})
 
 
 @router.get("/orders/{oid}/video-processing")
