@@ -1,5 +1,6 @@
 """Внутренний мост Home Master -> ProntoF. Пользователи работают только в Home Master."""
 import os
+import json
 import re
 import uuid
 import asyncio
