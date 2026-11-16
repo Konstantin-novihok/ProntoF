@@ -190,7 +190,7 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
 
 class ReserveIn(BaseModel):item_id:int;order_id:int;qty:float=Field(gt=0,le=100000000)
 def expire(db,item_id=None):
- q=select(Reservation).where(Reservation.status=="active",Reservation.paid_at.is_(None),Reservation.expires_at.is_not(None),Reservation.expires_at<=now())
+ q=select(Reservation).where(Reservation.status=="active",Reservation.expires_at.is_not(None),Reservation.expires_at<=now())
  if item_id:q=q.where(Reservation.item_id==item_id)
  for r in db.scalars(q):r.status="expired";log(db,None,"reservation_expired","reservation",r.id)
 def r_out(r,db,priv):
@@ -262,7 +262,6 @@ def set_reservation_expiry(rid:int,b:ExpiryIn,user:User=Depends(current_user),db
   if expiry.tzinfo is not None:expiry=expiry.astimezone(dt.timezone.utc).replace(tzinfo=None)
   if expiry<=now():r.status="expired";r.expires_at=expiry
   else:r.expires_at=expiry
-  if r.paid_at and expiry>now():r.paid_at=None;r.confirmed_by=None
  log(db,user,"reservation_expiry_changed","reservation",r.id,f"expires_at={r.expires_at.isoformat() if r.expires_at else 'indefinite'}")
  db.commit()
  return r_out(r,db,True)
