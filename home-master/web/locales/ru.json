@@ -472,7 +472,7 @@
   "other_cost": "Прочие расходы",
   "executor_report": "Мой отчёт о работе",
   "work_done": "Выполненные работы",
-  "report_materials_json": "Материалы в JSON, например [{\"name\":\"Деталь\",\"qty\":1,\"unit\":\"шт\",\"unit_cost\":12.5}] (необязательный item_id подставит цену склада)",
+  "report_materials_json": "Материалы в JSON. Для списания резерва укажите reservation_id и qty; для внешних материалов — name, qty, unit, unit_cost.",
   "submit_report": "Отправить отчёт",
   "reserve_material": "Зарезервировать материал",
   "no_available_stock": "Нет доступного остатка",
@@ -513,5 +513,8 @@
   "video_render_ready": "Готовое видео с переводом",
   "video_download": "Скачать MP4",
   "video_render_failed": "Не удалось создать видео",
-  "video_render_started": "Создание итогового видео поставлено в очередь."
+  "video_render_started": "Создание итогового видео поставлено в очередь.",
+  "cap_reservation_issue": "Выдача зарезервированных материалов",
+  "reservation_issue": "Выдать со склада",
+  "reservation_remaining_qty": "осталось"
 }
