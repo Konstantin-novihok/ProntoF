@@ -169,7 +169,7 @@ route('order', async (id) => {
   if (role === 3 && o.executor_id == null && !['done', 'cancelled'].includes(o.status)) {
     act('take_order', async () => { await api('POST', `/orders/${id}/self-claim`, {}); reload(); }, 'go');
   }
-  if (role === 1 || role === 2 || capabilities.includes('order_assign')) {
+  if (role === 1 || capabilities.includes('order_assign')) {
     act('add_executor', async () => {
       const users = (await api('GET', '/users?role=3')).filter((u) => u.is_active && u.verification === 'verified');
       const assigned = new Set(participants.filter((x) => x.active).map((x) => x.user_id));
@@ -179,7 +179,7 @@ route('order', async (id) => {
       if (uid) { await api('POST', `/orders/${id}/participants`, {executor_id: +uid}); reload(); }
     });
   }
-  if ([1, 2, 3, 7].includes(role)) {
+  if ([1, 2, 7].includes(role) || (role === 3 && participants.some((p) => p.user_id === S.me.id && p.active))) {
     act('reserve_material', async () => {
       const items = await api('GET', '/warehouse/items');
       const available = items.filter((x) => x.kind === 'material' && (x.available ?? x.in_warehouse) > 0);
@@ -225,7 +225,7 @@ route('order', async (id) => {
     h('h2', {style: 'margin-top:0'}, t('order_team')),
     participants.length ? participants.map((p) => h('div', {class: 'row'},
       h('span', {class: 'grow'}, p.name + (p.active ? '' : ' · ' + t('assignment_ended')) + ' · ' + (p.method === 'self_claim' ? t('self_assigned') : t('assigned_by_manager'))),
-      p.active && (role === 1 || role === 2 || capabilities.includes('order_assign')) ? h('button', {class: 'ghost small', onclick: guard(async () => { await api('DELETE', `/orders/${id}/participants/${p.user_id}`); reload(); })}, t('remove_executor')) : null))
+      p.active && (role === 1 || capabilities.includes('order_assign')) ? h('button', {class: 'ghost small', onclick: guard(async () => { await api('DELETE', `/orders/${id}/participants/${p.user_id}`); reload(); })}, t('remove_executor')) : null))
       : h('p', {class:'muted'}, t('no_executors')),
     reservations.length ? h('h3', {}, t('warehouse_reservations')) : null,
     ...reservations.map((r) => h('div', {class:'row'},
@@ -422,12 +422,32 @@ route('users', async () => {
       const opts = [{label: t('change_role'), value: 'role'}, {label: t('change_department'), value: 'dep'}, {label: t('work_profile'), value: 'prof'},
         {label: t('toggle_active'), value: 'act'}, {label: t('view_private'), value: 'priv'}, {label: t('bonus_fine'), value: 'adj'}];
       if (me.role === 1) opts.push({label: 'Сбросить пароль', value: 'password'});
+      if (me.role === 1 && [2, 3, 5, 6].includes(u.role)) opts.push({label: t('trusted_permissions'), value: 'rights'});
       if (u.employment === 'external') opts.splice(3, 0, {label: t('verify'), value: 'ver'});
       const a = await pick(personName(u), opts);
       if (a === 'role') { const r = await rolePick(); if (r) { await api('PATCH', '/users/' + u.id, {role: r}); reload(); } }
       if (a === 'dep') { const ds = await api('GET', '/departments'); const d = await pick(t('department'), [{label: t('none'), value: 0}, ...ds.map((x) => ({label: x.name, value: x.id}))]);
         if (d !== undefined) { await api('PATCH', '/users/' + u.id, {department_id: d || null}); reload(); } }
       if (a === 'act') { await api('PATCH', '/users/' + u.id, {is_active: !u.is_active}); reload(); }
+      if (a === 'rights') {
+        const current = await api('GET', '/trusted-users');
+        const saved = new Set((current.find((x) => x.user_id === u.id) || {}).capabilities || []);
+        const definitions = [
+          ['order_assign', t('cap_order_assign')],
+          ['warehouse_reservation_view', t('cap_reservation_view')],
+          ['reservation_payment_confirm', t('cap_payment_confirm')]
+        ];
+        const checks = definitions.map(([key,label]) => {
+          const c = h('input', {type:'checkbox',checked:saved.has(key)});
+          return {key,el:h('label',{class:'row'},c,h('span',{},label)),check:c};
+        });
+        modal(t('trusted_permissions') + ': ' + personName(u), h('div', {},
+          ...checks.map((x)=>x.el),
+          h('div',{class:'actions'},h('button',{onclick:guard(async()=>{
+            await api('PUT',`/trusted-users/${u.id}/capabilities`,{capabilities:checks.filter((x)=>x.check.checked).map((x)=>x.key)});
+            const m=$('.modal-back');if(m)m.remove();toast(t('saved'));
+          })},t('save')),h('button',{class:'ghost',onclick:(e)=>e.target.closest('.modal-back').remove()},t('cancel')))));
+      }
       if (a === 'password') {
         const v = await formModal('Новый пароль: ' + personName(u), [{key: 'password', label: 'Новый пароль', type: 'password'}]);
         if (v && v.password) { await api('POST', '/users/' + u.id + '/password', {password: v.password}); toast('Пароль изменён'); }
