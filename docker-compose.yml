@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: home-master/Dockerfile
     image: home-master-prontof:main
-    container_name: home-master-test
+    container_name: home-master-prontof-test
     restart: unless-stopped
     depends_on:
       prontof-worker:
