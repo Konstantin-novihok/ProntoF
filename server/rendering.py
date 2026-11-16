@@ -251,6 +251,9 @@ def recover_interrupted_renders():
         rows = db.query(worker.RenderedOutput).filter(
             worker.RenderedOutput.status.in_(("queued", "running"))).all()
         for row in rows:
+            partial = worker.JOB_DIR / "rendered" / f"{row.job_id}.mp4"
+            partial.unlink(missing_ok=True)
+            shutil.rmtree(worker.JOB_DIR / f"render_{row.job_id}", ignore_errors=True)
             row.status = "failed"
             row.error = "Worker перезапустился во время сборки. Нажмите «Создать видео» повторно."
             row.file_path = ""
