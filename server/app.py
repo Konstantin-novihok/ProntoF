@@ -210,6 +210,20 @@ def video_detail(video_id: str, db: Session = Depends(db_session), user: User = 
     v = accessible_video(db, video_id, user)
     return {"id":v.id,"filename":v.filename,"size_bytes":v.size_bytes,"visibility":v.visibility,"created_at":v.created_at.isoformat()+"Z"}
 
+class VisibilityRequest(BaseModel):
+    visibility: str = Field(pattern=r"^(private|shared)$")
+
+@app.patch("/api/videos/{video_id}/visibility")
+def set_video_visibility(video_id: str, data: VisibilityRequest, db: Session = Depends(db_session), user: User = Depends(current_user)):
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(404, "Видео не найдено")
+    if video.owner_id != user.id and user.role != "owner":
+        raise HTTPException(403, "Изменять доступ может владелец видео или администратор")
+    video.visibility = data.visibility
+    db.commit()
+    return {"id":video.id,"visibility":video.visibility}
+
 @app.get("/api/videos/{video_id}/source")
 def video_source(video_id: str, db: Session = Depends(db_session), user: User = Depends(current_user)):
     v = accessible_video(db, video_id, user)
@@ -315,8 +329,18 @@ def edit_job(job_id: str, data: EditRequest, db: Session = Depends(db_session), 
         raise HTTPException(409, "Редактировать можно после завершения обработки")
     job.transcript = data.transcript
     job.translated_text = data.translated_text
+    # Preserve timing while applying user-edited lines to subtitle segments.
+    segments = json.loads(job.segments_json or "[]")
+    original_lines = [line.strip() for line in data.transcript.splitlines() if line.strip()]
+    translated_lines = [line.strip() for line in data.translated_text.splitlines() if line.strip()]
+    for index, segment in enumerate(segments):
+        if index < len(original_lines):
+            segment["text"] = original_lines[index]
+        if index < len(translated_lines):
+            segment["translated"] = translated_lines[index]
+    job.segments_json = json.dumps(segments, ensure_ascii=False)
     db.commit()
-    return {"status":"saved"}
+    return {"status":"saved","subtitle_segments":len(segments)}
 
 @app.get("/api/jobs/{job_id}/subtitles/{kind}")
 def download_subtitles(job_id: str, kind: str, db: Session = Depends(db_session), user: User = Depends(current_user)):
