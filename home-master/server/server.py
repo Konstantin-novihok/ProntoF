@@ -1146,6 +1146,10 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
     """Upload media. X-Client-Upload-ID provides retry-safe idempotency with SHA-256 verification."""
     need(user, OWNER, ADMIN, HEAD, EXECUTOR, CLIENT, STAFF)
     o = get_order(db, user, oid)
+    if user.role == EXECUTOR:
+        from collaboration import participant
+        if not participant(db, oid, user.id):
+            raise HTTPException(403, "Прикреплять файлы к заказу могут только его исполнители")
     upload_key = (request.headers.get("x-client-upload-id") or "").strip()
     if upload_key and (len(upload_key) > 80 or not all(ch.isalnum() or ch in "-_." for ch in upload_key)):
         raise HTTPException(400, "Invalid X-Client-Upload-ID")
