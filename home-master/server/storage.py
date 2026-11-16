@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from server import (ADMINS, EXECUTOR, EXT_KIND, HEAD, MEDIA_DIR, DOCS_DIR, OBSERVER, OWNER, STAFF_ROLES, Base, Media, User,
+from server import (ADMINS, EXECUTOR, EXT_KIND, HEAD, MEDIA_DIR, DOCS_DIR, OBSERVER, OWNER, STAFF_ROLES, Base, Media, Order, User,
                     UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, media_path, need, now, save_stream,
                     DATA_DIR)
 
