@@ -23,7 +23,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from server import (ADMINS, EXECUTOR, EXT_KIND, HEAD, MEDIA_DIR, DOCS_DIR, OBSERVER, OWNER, STAFF_ROLES, Base, Media, Order, User,
                     UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, media_path, need, now, save_stream,
-                    DATA_DIR)
+                    DATA_DIR, ORDER_DATA_DIR)
 
 router = APIRouter()
 FILES_DIR = os.path.join(DATA_DIR, "files")
@@ -78,7 +78,7 @@ class ChatMessage(Base):
 
 
 def ensure_order_workspace(order_id: int):
-    root = os.path.join(DATA_DIR, "orders", str(order_id))
+    root = os.path.join(ORDER_DATA_DIR, "orders", str(order_id))
     for relative in ("customer/original_video", "customer/files", "history"):
         os.makedirs(os.path.join(root, relative), exist_ok=True)
 
@@ -121,8 +121,8 @@ def sync_user_order_index(db: Session, user_id: int, order: Order, event: str, a
 def stored_file_path(f: StoredFile) -> str:
     filename = f.filename or ""
     if filename.startswith("orders/"):
-        path = os.path.abspath(os.path.join(DATA_DIR, filename))
-        root = os.path.abspath(os.path.join(DATA_DIR, "orders"))
+        path = os.path.abspath(os.path.join(ORDER_DATA_DIR, filename))
+        root = os.path.abspath(os.path.join(ORDER_DATA_DIR, "orders"))
         if os.path.commonpath([root, path]) != root:
             raise HTTPException(400, "Некорректный путь файла")
         return path
