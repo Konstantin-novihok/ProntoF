@@ -481,5 +481,10 @@
   "reservation_expires": "Expires",
   "confirm_payment": "Confirm payment",
   "reserved": "Reserved",
-  "available": "Available"
+  "available": "Available",
+  "trusted_permissions": "Trusted employee permissions",
+  "cap_order_assign": "Assign and reassign executors",
+  "cap_reservation_view": "View who reserved stock",
+  "cap_payment_confirm": "Confirm reservation payment",
+  "save": "Save"
 }
