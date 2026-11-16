@@ -481,5 +481,10 @@
   "reservation_expires": "Истекает",
   "confirm_payment": "Подтвердить оплату",
   "reserved": "В резерве",
-  "available": "Доступно"
+  "available": "Доступно",
+  "trusted_permissions": "Права доверенного сотрудника",
+  "cap_order_assign": "Назначать и переназначать исполнителей",
+  "cap_reservation_view": "Видеть, кто зарезервировал товар",
+  "cap_payment_confirm": "Подтверждать оплату резерва",
+  "save": "Сохранить"
 }
