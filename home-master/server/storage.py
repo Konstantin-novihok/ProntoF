@@ -77,8 +77,15 @@ class ChatMessage(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now, index=True)
 
 
+def ensure_order_workspace(order_id: int):
+    root = os.path.join(DATA_DIR, "orders", str(order_id))
+    for relative in ("customer/original_video", "customer/files", "history"):
+        os.makedirs(os.path.join(root, relative), exist_ok=True)
+
+
 def sync_user_order_index(db: Session, user_id: int, order: Order, event: str, active: bool = True):
     """Персональная ссылка на заказ; сами бинарные файлы остаются только в папке заказа."""
+    ensure_order_workspace(order.id)
     user = db.get(User, user_id)
     if not user:
         return
@@ -86,6 +93,8 @@ def sync_user_order_index(db: Session, user_id: int, order: Order, event: str, a
     root = os.path.join(DATA_DIR, "users", f"{user.id}_{slug}")
     for part in ("profile", "documents", "orders"):
         os.makedirs(os.path.join(root, part), exist_ok=True)
+    for part in ("photos", "videos", "files", "reports"):
+        os.makedirs(os.path.join(DATA_DIR, "orders", str(order.id), "execution", str(user.id), part), exist_ok=True)
     path = os.path.join(root, "orders", f"{order.id}.json")
     data = {"user_id": user.id, "order_id": order.id, "title": order.title, "status": order.status,
             "created_at": order.created_at.isoformat() if order.created_at else None, "active": active, "history": []}
