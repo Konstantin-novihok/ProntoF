@@ -57,6 +57,24 @@ class Reservation(Base):
  expires_at:Mapped[Optional[dt.datetime]]=mapped_column(DateTime,nullable=True)
  created_at:Mapped[dt.datetime]=mapped_column(DateTime,default=now)
 
+class ReservationIssue(Base):
+ __tablename__="wh_reservation_issues"
+ id:Mapped[int]=mapped_column(primary_key=True)
+ reservation_id:Mapped[int]=mapped_column(ForeignKey("wh_reservations.id"),index=True)
+ item_id:Mapped[int]=mapped_column(ForeignKey("wh_items.id"),index=True)
+ order_id:Mapped[int]=mapped_column(ForeignKey("orders.id"),index=True)
+ qty:Mapped[float]=mapped_column(Float)
+ unit_cost:Mapped[float]=mapped_column(Float,default=0)
+ issued_by:Mapped[int]=mapped_column(ForeignKey("users.id"))
+ created_at:Mapped[dt.datetime]=mapped_column(DateTime,default=now)
+
+def reservation_issued_qty(db,r):
+ return float(db.scalar(select(func.coalesce(func.sum(ReservationIssue.qty),0.0)).where(ReservationIssue.reservation_id==r.id)) or 0)
+
+def reservation_remaining(db,r):
+ return max(0.0,float(r.qty or 0)-reservation_issued_qty(db,r))
+
+
 def capability(db,user,key):
  if user.role==OWNER:return True
  row=db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id))
@@ -210,7 +228,14 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
     item=db.get(Item,int(m["item_id"]))
     if not item:raise ValueError()
     unit_cost=float(item.unit_cost or 0)
-   normalized_materials.append({"name":str(m["name"]).strip()[:200],"qty":qty,"unit":str(m.get("unit","") or "")[:20],"unit_cost":unit_cost,"item_id":int(m["item_id"]) if m.get("item_id") else None})
+   reservation_id=int(m["reservation_id"]) if m.get("reservation_id") else None
+   item_id=int(m["item_id"]) if m.get("item_id") else None
+   if reservation_id:
+    reservation=db.get(Reservation,reservation_id)
+    if not reservation or reservation.order_id!=oid or (item_id is not None and item_id!=reservation.item_id):raise ValueError()
+    item_id=reservation.item_id
+    if qty>reservation_remaining(db,reservation)+1e-9:raise ValueError()
+   normalized_materials.append({"name":str(m["name"]).strip()[:200],"qty":qty,"unit":str(m.get("unit","") or "")[:20],"unit_cost":unit_cost,"item_id":item_id,"reservation_id":reservation_id})
   except (TypeError,ValueError,KeyError):
    raise HTTPException(400,"Некорректный материал или цена")
  r=db.scalar(select(ExecutorReport).where(ExecutorReport.order_id==oid,ExecutorReport.executor_id==user.id))
@@ -221,9 +246,13 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
  if b.submit:
   from finance import Expense, r2
   for material in normalized_materials:
-   amount=r2(material["qty"]*material["unit_cost"])
-   if amount:
-    db.add(Expense(order_id=oid,kind="material",description=material["name"],qty=material["qty"],unit_cost=material["unit_cost"],amount=amount,currency=o.currency or "UAH",item_id=material["item_id"],auto=True,created_by=user.id))
+   if material.get("reservation_id"):
+    from warehouse import issue_reservation
+    issue_reservation(db,material["reservation_id"],material["qty"],user,commit=False)
+   else:
+    amount=r2(material["qty"]*material["unit_cost"])
+    if amount:
+     db.add(Expense(order_id=oid,kind="material",description=material["name"],qty=material["qty"],unit_cost=material["unit_cost"],amount=amount,currency=o.currency or "UAH",item_id=material["item_id"],auto=True,created_by=user.id))
   if b.other_cost>0:
    db.add(Expense(order_id=oid,kind="other",description=f"Дополнительные расходы исполнителя #{user.id}",qty=1,unit_cost=r2(b.other_cost),amount=r2(b.other_cost),currency=o.currency or "UAH",auto=True,created_by=user.id))
  log(db,user,"executor_report_"+r.status,"order",oid);db.commit()
@@ -237,7 +266,8 @@ def expire(db,item_id=None):
 def r_out(r,db,priv):
  from warehouse import Item
  it=db.get(Item,r.item_id)
- d={"id":r.id,"item_id":r.item_id,"item_name":it.name if it else "?","order_id":r.order_id,"qty":r.qty,"status":r.status,"paid":bool(r.paid_at),"expires_at":r.expires_at.isoformat() if r.expires_at else None}
+ issued=reservation_issued_qty(db,r);remaining=max(0.0,float(r.qty or 0)-issued)
+ d={"id":r.id,"item_id":r.item_id,"item_name":it.name if it else "?","order_id":r.order_id,"qty":r.qty,"issued_qty":issued,"remaining_qty":remaining,"status":r.status,"paid":bool(r.paid_at),"expires_at":r.expires_at.isoformat() if r.expires_at else None}
  if priv:
   u=db.get(User,r.user_id);c=db.get(User,r.confirmed_by) if r.confirmed_by else None
   d.update(user_id=r.user_id,reserved_by=(u.full_name or u.username) if u else "?",confirmed_by=(c.full_name or c.username) if c else None,paid_at=r.paid_at.isoformat() if r.paid_at else None)
@@ -252,7 +282,7 @@ def reserve(b:ReserveIn,user:User=Depends(current_user),db:Session=Depends(get_d
  if not it or not it.active:raise HTTPException(404,"Позиция не найдена")
  expire(db,it.id)
  stock=float(db.scalar(select(func.coalesce(func.sum(Stock.qty),0.0)).where(Stock.item_id==it.id,Stock.holder_user_id.is_(None))) or 0)
- held=sum(float(x.qty) for x in db.scalars(select(Reservation).where(Reservation.item_id==it.id,Reservation.status=="active")))
+ held=sum(reservation_remaining(db,x) for x in db.scalars(select(Reservation).where(Reservation.item_id==it.id,Reservation.status=="active")))
  avail=max(0,stock-held)
  if avail+1e-9<b.qty:raise HTTPException(409,f"Доступно только {avail:g} {it.unit}")
  hours=24;setting=db.get(core.AppSetting,"reservation_hours")
@@ -280,6 +310,15 @@ def confirm_payment(rid:int,user:User=Depends(current_user),db:Session=Depends(g
  if not r or r.status!="active":raise HTTPException(404,"Активный резерв не найден")
  if not r.paid_at:r.paid_at=now();r.confirmed_by=user.id;r.expires_at=None;log(db,user,"reservation_payment_confirmed","reservation",r.id,f"order={r.order_id}; item={r.item_id}; user={r.user_id}; qty={r.qty}")
  db.commit();return r_out(r,db,True)
+
+
+class IssueReservationIn(BaseModel):
+ qty:float=Field(gt=0,le=100000000)
+
+@router.post("/warehouse/reservations/{rid}/issue")
+def issue_reserved_material(rid:int,b:IssueReservationIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
+ from warehouse import issue_reservation
+ return issue_reservation(db,rid,b.qty,user,commit=True)
 
 @router.delete("/warehouse/reservations/{rid}")
 def cancel_reservation(rid:int,user:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -321,7 +360,7 @@ def availability(item_id:int,user:User=Depends(current_user),db:Session=Depends(
  it=db.get(Item,item_id)
  if not it:raise HTTPException(404)
  expire(db,item_id);stock=float(db.scalar(select(func.coalesce(func.sum(Stock.qty),0.0)).where(Stock.item_id==item_id,Stock.holder_user_id.is_(None))) or 0)
- held=sum(float(x.qty) for x in db.scalars(select(Reservation).where(Reservation.item_id==item_id,Reservation.status=="active")))
+ held=sum(reservation_remaining(db,x) for x in db.scalars(select(Reservation).where(Reservation.item_id==item_id,Reservation.status=="active")))
  db.commit();return {"item_id":item_id,"total":stock,"reserved":held,"available":max(0,stock-held),"unit":it.unit}
 
 
