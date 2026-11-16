@@ -25,8 +25,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data")).resolve()
 UPLOAD_DIR = DATA_DIR / "uploads"
 VIDEO_DIR = DATA_DIR / "videos"
+ORDER_DATA_DIR = Path(os.getenv("ORDER_DATA_DIR", str(DATA_DIR))).resolve()
 JOB_DIR = DATA_DIR / "jobs"
-for folder in (DATA_DIR, UPLOAD_DIR, VIDEO_DIR, JOB_DIR):
+for folder in (DATA_DIR, UPLOAD_DIR, VIDEO_DIR, JOB_DIR, ORDER_DATA_DIR):
     folder.mkdir(parents=True, exist_ok=True)
 
 DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'prontof.db'}")
@@ -144,6 +145,15 @@ def accessible_video(db: Session, video_id: str, user: User) -> Video:
     if not video or (video.owner_id != user.id and video.visibility != "shared" and user.role != "owner"):
         raise HTTPException(404, "Видео не найдено")
     return video
+
+def resolve_video_path(video: Video) -> Path:
+    for root in (ORDER_DATA_DIR, VIDEO_DIR):
+        base = root.resolve()
+        candidate = (root / video.stored_name).resolve()
+        if os.path.commonpath([str(base), str(candidate)]) == str(base) and candidate.is_file():
+            return candidate
+    raise FileNotFoundError(video.stored_name)
+
 
 def clean_filename(name: str) -> str:
     name = Path(name.replace("\\", "/")).name
@@ -340,7 +350,7 @@ def complete_upload(upload_id: str, data: UploadComplete, db: Session = Depends(
     filename = clean_filename(data.filename)
     video_id = str(uuid.uuid4())
     stored_name = f"orders/{order_id}/customer/original_video/{video_id}{Path(filename).suffix.lower()[:12]}"
-    destination = VIDEO_DIR / stored_name
+    destination = ORDER_DATA_DIR / stored_name
     destination.parent.mkdir(parents=True, exist_ok=True)
     total = 0
     try:
@@ -442,7 +452,7 @@ async def internal_upload_single(order_id: int, upload_id: str, request: Request
                 total += len(chunk)
                 if total > MAX_UPLOAD_BYTES:
                     raise HTTPException(413, "Размер видео превышает установленный лимит загрузки")
-                if shutil.disk_usage(VIDEO_DIR).free < len(chunk) + 64 * 1024 * 1024:
+                if shutil.disk_usage(ORDER_DATA_DIR).free < len(chunk) + 64 * 1024 * 1024:
                     raise HTTPException(507, "На диске недостаточно свободного места для загрузки видео")
                 output.write(chunk)
             output.flush()
@@ -577,8 +587,9 @@ def internal_video_source(video_id: str, request: Request, db: Session = Depends
     video = db.get(Video, video_id)
     if not video:
         raise HTTPException(404, "Видео не найдено")
-    path = (VIDEO_DIR / video.stored_name).resolve()
-    if os.path.commonpath([VIDEO_DIR.resolve(), path]) != str(VIDEO_DIR.resolve()) or not path.is_file():
+    try:
+        path = resolve_video_path(video)
+    except FileNotFoundError:
         raise HTTPException(404, "Файл видео отсутствует")
     import mimetypes
     mime = mimetypes.guess_type(video.filename)[0] or "application/octet-stream"
@@ -614,9 +625,10 @@ def internal_video_delete(video_id: str, request: Request, db: Session = Depends
     if job_ids:
         for receipt in db.scalars(select(InternalUploadReceipt).where(InternalUploadReceipt.job_id.in_(job_ids))).all():
             db.delete(receipt)
-    path = (VIDEO_DIR / video.stored_name).resolve()
-    if os.path.commonpath([VIDEO_DIR.resolve(), path]) == str(VIDEO_DIR.resolve()):
-        path.unlink(missing_ok=True)
+    try:
+        resolve_video_path(video).unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
     db.delete(video)
     db.commit()
     return {"ok": True, "job_ids": job_ids}
@@ -740,7 +752,11 @@ def process_job(job_id: str):
         if not video:
             update_job(job_id, status="error", error="Видео не найдено", message="Ошибка")
             return
-        source_path = VIDEO_DIR / video.stored_name
+        try:
+            source_path = resolve_video_path(video)
+        except FileNotFoundError:
+            update_job(job_id, status="error", error="Файл оригинала отсутствует", message="Ошибка")
+            return
         target_language = job.target_language
         source_language = job.source_language or None
         update_job(job_id, status="processing", progress=2, message="Загрузка модели распознавания")
