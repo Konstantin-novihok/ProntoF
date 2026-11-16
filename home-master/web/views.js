@@ -135,6 +135,9 @@ function fileFoot(m, url) {
 // ───────────── Карточка заказа ─────────────
 route('order', async (id) => {
   const d = await api('GET', '/orders/' + id), o = d.order, role = S.me.role;
+  let capabilities = []; try { capabilities = (await api('GET', '/me/capabilities')).capabilities || []; } catch (_) {}
+  let participants = []; try { participants = await api('GET', `/orders/${id}/participants`); } catch (_) {}
+  let reports = []; try { reports = await api('GET', `/orders/${id}/reports`); } catch (_) {}
   let videoJobs = []; try { videoJobs = await api('GET', `/orders/${id}/video-processing`); } catch (e) { /* обработчик недоступен — заказ остаётся доступен */ }
   const reload = () => render();
   const post = guard(async (action, body) => { await api('POST', `/orders/${id}/${action}`, body || {}); reload(); });
@@ -162,6 +165,19 @@ route('order', async (id) => {
     const users = (await api('GET', '/users?role=3')).filter((u) => u.is_active && u.verification === 'verified' && (isAdmin() || u.department_id === o.department_id));
     if (!users.length) throw new Error(t('no_executors'));
     const uid = await pick(t('assign_executor'), users.map((u) => ({label: personName(u) + (u.company_name ? ' · ' + u.company_name : ''), value: u.id}))); if (uid) await post('assign', {executor_id: uid}); });
+  if (role === 3 && o.executor_id == null && !['done', 'cancelled'].includes(o.status)) {
+    act('take_order', async () => { await api('POST', `/orders/${id}/self-claim`, {}); reload(); }, 'go');
+  }
+  if (role === 1 || role === 2 || capabilities.includes('order_assign')) {
+    act('add_executor', async () => {
+      const users = (await api('GET', '/users?role=3')).filter((u) => u.is_active && u.verification === 'verified');
+      const assigned = new Set(participants.filter((x) => x.active).map((x) => x.user_id));
+      const choices = users.filter((u) => !assigned.has(u.id));
+      if (!choices.length) throw new Error(t('no_executors'));
+      const uid = await pick(t('add_executor'), choices.map((u) => ({label: personName(u) + (u.company_name ? ' · ' + u.company_name : ''), value: u.id})));
+      if (uid) { await api('POST', `/orders/${id}/participants`, {executor_id: +uid}); reload(); }
+    });
+  }
   if (isAdmin()) act('assign_dept', async () => {
     const ds = await api('GET', '/departments');
     const did = await pick(t('assign_dept'), ds.map((x) => ({label: x.name, value: x.id}))); if (did) await post('assign', {department_id: did}); });
@@ -188,6 +204,33 @@ route('order', async (id) => {
   if (o.arrived_at) info.push([t('arrived'), fmtDate(o.arrived_at) + (o.geo_verified ? ' · ' + t('geo_verified') : '')]);
   if (o.distance_km) info.push([t('km'), num(o.distance_km)]);
   if (o.rating) info.push([t('rating'), '★'.repeat(o.rating)]);
+  const collaboration = [1, 2, 3, 6, 7].includes(role) ? h('div', {class: 'card'},
+    h('h2', {style: 'margin-top:0'}, t('order_team')),
+    participants.length ? participants.map((p) => h('div', {class: 'row'},
+      h('span', {class: 'grow'}, p.name + (p.active ? '' : ' · ' + t('assignment_ended')) + ' · ' + (p.method === 'self_claim' ? t('self_assigned') : t('assigned_by_manager'))),
+      p.active && (role === 1 || role === 2 || capabilities.includes('order_assign')) ? h('button', {class: 'ghost small', onclick: guard(async () => { await api('DELETE', `/orders/${id}/participants/${p.user_id}`); reload(); })}, t('remove_executor')) : null))
+      : h('p', {class:'muted'}, t('no_executors')),
+    reports.length ? h('h3', {}, t('executor_reports')) : null,
+    ...reports.map((r) => h('div', {class:'card'},
+      h('b', {}, r.executor_name), h('div', {class:'muted small'}, r.status === 'submitted' ? t('report_submitted') : t('report_draft')),
+      r.work_done ? h('p', {}, r.work_done) : null, r.comments ? h('p', {class:'muted'}, r.comments) : null,
+      h('div', {class:'small'}, `${t('hours')}: ${num(r.labor_hours)} · ${t('other_cost')}: ${money(r.other_cost)}`),
+      r.materials && r.materials.length ? h('ul', {}, r.materials.map((m) => h('li', {}, `${m.name}: ${m.qty} ${m.unit || ''}`))) : null)),
+    role === 3 && participants.some((p) => p.user_id === S.me.id && p.active) && !reports.some((r) => r.executor_id === S.me.id && r.status === 'submitted')
+      ? h('button', {class:'ghost', onclick:guard(async () => {
+          const v = await formModal(t('executor_report'), [
+            {key:'work_done',label:'work_done',type:'textarea'},
+            {key:'comments',label:'comments',type:'textarea'},
+            {key:'materials',label:'report_materials_json',type:'textarea',value:'[]'},
+            {key:'labor_hours',label:'hours',type:'number',value:0},
+            {key:'other_cost',label:'other_cost',type:'number',value:0}
+          ]);
+          if (!v) return;
+          let materials=[]; try { materials=JSON.parse(v.materials || '[]'); } catch (_) { throw new Error(t('report_materials_json')); }
+          if (!Array.isArray(materials)) throw new Error(t('report_materials_json'));
+          await api('PUT', `/orders/${id}/reports/me`, {work_done:v.work_done,comments:v.comments,materials,labor_hours:parseFloat(v.labor_hours)||0,other_cost:parseFloat(v.other_cost)||0,submit:true});
+          toast(t('saved')); reload();
+        })}, t('submit_report')) : null) : null;
   const media = d.media.map((m) => mediaItem(m));
   const videoProcessing = videoJobs.length ? h('div', {}, h('div', {class:'row'}, h('h2', {class:'grow'}, t('video_processing')),
     h('button', {class:'ghost small', onclick: () => render()}, t('video_refresh'))),
@@ -199,7 +242,7 @@ route('order', async (id) => {
       j.translated_text ? h('details', {}, h('summary', {}, t('video_translation')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.translated_text)) : null))) : null;
   const fin = [1, 2, 3, 4, 7, 6].includes(role) ? await financePanel(o) : null;
   return h('div', {}, h('div', {class: 'row'}, back('#/orders'), h('h1', {class: 'grow'}, `#${o.id} ${o.title}`)),
-    h('div', {class: 'card'}, kvList(info)), actions, mapBox, fin, videoProcessing,
+    h('div', {class: 'card'}, kvList(info)), actions, mapBox, collaboration, fin, videoProcessing,
     h('h2', {}, t('comments')), d.comments.length ? d.comments.map((c) => h('div', {class: 'comment' + (c.public ? '' : ' internal')},
       h('b', {}, c.author), ' ', h('span', {class: 'muted small'}, fmtDate(c.created_at) + (c.public ? '' : ` (${t('internal')})`)), h('div', {}, c.text))) : h('p', {class: 'muted'}, t('no_data')),
     h('h2', {}, t('media')), media.length ? h('div', {class: 'gallery'}, media) : h('p', {class: 'muted'}, t('no_data')));
@@ -265,6 +308,7 @@ async function financePanel(o) {
 route('new', async () => {
   const D = S.draft || (S.draft = {files: [], lat: null, lon: null, videoFile: null, videoUploadId: null, createdOrderId: null});
   const [deps, clients] = await Promise.all([api('GET', '/departments'), [1, 2, 7].includes(S.me.role) ? api('GET', '/users?role=4') : []]);
+  const role = S.me.role;
   const title = h('input', {}), descr = h('textarea', {}), address = h('input', {});
   const svc = selectEl([{value: '', label: '—'}, ...(S.pub.service_types || []).map((x) => ({value: x, label: x}))], '');
   const dep = selectEl([{value: '', label: '—'}, ...deps.map((x) => ({value: x.id, label: x.name}))], '');
@@ -286,8 +330,9 @@ route('new', async () => {
     if (!D.createdOrderId && !title.value.trim()) throw new Error(t('title'));
     let orderId = D.createdOrderId;
     if (!orderId) {
-      const o = await api('POST', '/orders', {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
-        department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null});
+      const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
+        department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null};
+      const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
       orderId = o.id;
       D.createdOrderId = orderId;
       try { await uploadFiles(`/orders/${orderId}/media`, D.files); } catch (e) { toast(e.message, true); }
@@ -338,7 +383,7 @@ route('new', async () => {
         h('button', {class:'ghost', onclick: removeVideo, disabled: !D.videoFile}, t('video_remove'))),
       videoInfo, h('label', {}, t('video_target_language')), videoLang),
     h('div', {style: 'margin-top:14px'}, h('button', {onclick: submit}, D.createdOrderId ? t('video_retry_submit') : t('submit'))));
-}, [1, 2, 4, 5, 7]);
+}, [1, 2, 3, 4, 5, 7]);
 
 // ───────────── Пользователи ─────────────
 const EMP_BADGE = (u) => u.employment === 'external' ? h('span', {class: 'badge', style: 'background:var(--warn);color:#fff'}, t('emp_external')) : null;
