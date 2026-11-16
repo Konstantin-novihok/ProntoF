@@ -706,7 +706,9 @@ def internal_job_detail(job_id: str, request: Request, db: Session = Depends(db_
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Задача не найдена")
-    return {"id": job.id, "order_id": job.order_id, "video_id": job.video_id, "status": job.status,
+    video = db.get(Video, job.video_id)
+    return {"id": job.id, "order_id": job.order_id, "video_id": job.video_id,
+            "filename": video.filename if video else "", "stored_name": video.stored_name if video else "", "status": job.status,
             "progress": job.progress, "message": job.message, "error": job.error,
             "source_language": job.source_language, "target_language": job.target_language,
             "transcript": job.transcript, "translated_text": job.translated_text}
