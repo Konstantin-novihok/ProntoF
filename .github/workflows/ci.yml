@@ -42,9 +42,12 @@ jobs:
           assert "/orders/create-as-executor" in paths
           assert "/orders/{oid}/reports" in paths
           assert "/orders/{oid}/reports/me" in paths
+          assert "/orders/{oid}/reports/me/files" in paths
           assert "/warehouse/reservations" in paths
           assert "/warehouse/reservations/{rid}/confirm-payment" in paths
           assert "/warehouse/reservations/settings/period" in paths
+          assert "/warehouse/reservations/{rid}/expiry" in paths
+          assert "/me/capabilities" in paths
           assert "/trusted-users/{uid}/capabilities" in paths
           tables = set(server.Base.metadata.tables)
           assert {"order_participants", "executor_reports", "trusted_capabilities", "wh_reservations"} <= tables
