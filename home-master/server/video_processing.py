@@ -276,7 +276,8 @@ async def video_original_source(oid:int,job_id:str,user:User=Depends(current_use
         if os.path.commonpath([root,path])==root and os.path.isfile(path):
             import mimetypes
             mime=mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
-            return FileResponse(path,filename=row.filename,media_type=mime,content_disposition_type="inline")
+            safe_name=re.sub(r'[\r\n"]+', "_", os.path.basename(row.filename))
+            return FileResponse(path,media_type=mime,headers={"Content-Disposition":f'inline; filename="{safe_name}"'})
     video_id=item.get("video_id")
     if not video_id:raise HTTPException(404,"Оригинал видео недоступен")
     async def stream():
