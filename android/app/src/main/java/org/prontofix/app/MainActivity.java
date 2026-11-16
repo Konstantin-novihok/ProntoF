@@ -515,6 +515,25 @@ public class MainActivity extends Activity {
                 while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             }
             out.flush();
+            out.close();
+            out = null;
+            // Android подтверждает удаление временного MP4 только после записи в выбранное пользователем место.
+            if (url != null && url.contains("/render/download")) {
+                HttpURLConnection ack = null;
+                try {
+                    String ackUrl = url.replace("/render/download", "/render/ack");
+                    ack = (HttpURLConnection) new URL(ackUrl).openConnection();
+                    ack.setRequestMethod("POST");
+                    ack.setConnectTimeout(15000);
+                    ack.setReadTimeout(30000);
+                    int ackCode = ack.getResponseCode();
+                    if (ackCode >= 400) throw new Exception("HTTP " + ackCode);
+                } catch (Exception ackError) {
+                    toast("Файл сохранён, но подтверждение очистки сервера не прошло. Временный файл будет удалён автоматически.");
+                } finally {
+                    if (ack != null) ack.disconnect();
+                }
+            }
             toast("✔ Сохранено / Saved");
         } catch (Exception e) {
             toast("Ошибка сохранения / Save error: " + e.getMessage());
