@@ -32,6 +32,9 @@ class Item(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     sku: Mapped[str] = mapped_column(String(40), default="")
     name: Mapped[str] = mapped_column(String(160))
+    manufacturer: Mapped[str] = mapped_column(String(160), default="")
+    package_volume: Mapped[float] = mapped_column(Float, default=0.0)
+    package_unit: Mapped[str] = mapped_column(String(12), default="")
     kind: Mapped[str] = mapped_column(String(10), default="material")      # material | equipment
     unit: Mapped[str] = mapped_column(String(12), default="pcs")
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
@@ -105,7 +108,7 @@ def item_out(db: Session, it: Item, viewer: User):
         reserved = 0.0
     available = max(0.0, in_wh - reserved)
     return dict(id=it.id, sku=it.sku, name=it.name, kind=it.kind, unit=it.unit, unit_cost=it.unit_cost, min_qty=it.min_qty,
-                description=it.description, active=it.active, in_warehouse=in_wh, with_staff=with_staff,
+                description=it.description, manufacturer=it.manufacturer, package_volume=it.package_volume, package_unit=it.package_unit, active=it.active, in_warehouse=in_wh, with_staff=with_staff,
                 total=in_wh + with_staff, reserved=reserved, available=available, mine=qty_of(db, it.id, viewer.id),
                 low=bool(it.min_qty and available < it.min_qty), thumb=thumb)
 
@@ -113,6 +116,9 @@ def item_out(db: Session, it: Item, viewer: User):
 class ItemIn(BaseModel):
     name: str
     sku: str = ""
+    manufacturer: str = ""
+    package_volume: float = 0.0
+    package_unit: str = ""
     kind: str = "material"
     unit: str = "pcs"
     unit_cost: float = 0.0
@@ -137,9 +143,10 @@ def items(q: str = "", user: User = Depends(current_user), db: Session = Depends
 @router.post("/warehouse/items")
 def create_item(b: ItemIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     need(user, *MANAGERS)
-    if not b.name.strip() or b.kind not in ("material", "equipment") or b.unit_cost < 0 or b.min_qty < 0:
+    if not b.name.strip() or b.kind not in ("material", "equipment") or b.unit_cost < 0 or b.min_qty < 0 or b.package_volume < 0:
         raise HTTPException(400, "Bad item")
-    it = Item(name=b.name.strip()[:160], sku=b.sku.strip()[:40], kind=b.kind, unit=b.unit.strip()[:12] or "pcs",
+    it = Item(name=b.name.strip()[:160], sku=b.sku.strip()[:40], manufacturer=b.manufacturer.strip()[:160],
+              package_volume=b.package_volume, package_unit=b.package_unit.strip()[:12], kind=b.kind, unit=b.unit.strip()[:12] or "pcs",
               unit_cost=b.unit_cost, min_qty=b.min_qty, description=b.description[:5000], created_by=user.id)
     db.add(it)
     db.flush()
@@ -154,7 +161,7 @@ def edit_item(iid: int, b: ItemIn, user: User = Depends(current_user), db: Sessi
     it = db.get(Item, iid)
     if not it or b.kind not in ("material", "equipment"):
         raise HTTPException(404)
-    it.name, it.sku, it.kind, it.unit = b.name.strip()[:160], b.sku.strip()[:40], b.kind, b.unit.strip()[:12] or "pcs"
+    it.name, it.sku, it.manufacturer, it.package_volume, it.package_unit, it.kind, it.unit = b.name.strip()[:160], b.sku.strip()[:40], b.manufacturer.strip()[:160], max(0.0,b.package_volume), b.package_unit.strip()[:12], b.kind, b.unit.strip()[:12] or "pcs"
     it.unit_cost, it.min_qty, it.description = max(0.0, b.unit_cost), max(0.0, b.min_qty), b.description[:5000]
     log(db, user, "wh_item_edit", "item", it.id, it.name)
     db.commit()
