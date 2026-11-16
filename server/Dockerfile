@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Piper's pinned source distribution compiles native phonemizer components.
 # Keep the build toolchain available during pip installation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates build-essential cmake ninja-build && \
+    ffmpeg ca-certificates git build-essential cmake ninja-build && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
