@@ -179,7 +179,8 @@ jobs:
           assert voice_for_language("uk") == "uk_UA-ukrainian_tts-medium"
           assert voice_for_language("ru")
           assert voice_for_language("bg") == "bg_BG-dimitar-medium"
-          assert voice_for_language("lt") is None and voice_for_language("lv") is None
+          assert voice_for_language("lt") == "lt_LT-ingute-medium"
+          assert voice_for_language("lv") == "lv_LV-aivars-medium"
           app.Base.metadata.create_all(app.engine)
           source = app.VIDEO_DIR / "ci-render-source.mp4"
           subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y",
@@ -209,7 +210,23 @@ jobs:
                                                "-of","json",str(rendered)],text=True)
               kinds = {s["codec_type"] for s in json.loads(probe)["streams"]}
               assert {"video","audio"} <= kinds
-          print("Piper generated speech and FFmpeg produced a playable MP4.")
+          # Validate the two less common language models as well; Lithuanian needs the
+          # newer upstream phonemizer implementation pinned in requirements.txt.
+          import io, os, wave
+          from piper import PiperVoice
+          from rendering import _download_voice
+          voice_dir = Path(os.environ["PIPER_VOICE_DIR"])
+          for voice_id, phrase in [
+              ("lt_LT-ingute-medium", "Labas rytas, kaip sekasi?"),
+              ("lv_LV-aivars-medium", "Labdien, kā jums klājas?")
+          ]:
+              model = _download_voice(voice_id, voice_dir)
+              voice = PiperVoice.load(model, download_dir=voice_dir)
+              wav_buffer = io.BytesIO()
+              with wave.open(wav_buffer, "wb") as wav_out:
+                  voice.synthesize_wav(phrase, wav_out)
+              assert len(wav_buffer.getvalue()) > 1024, voice_id
+          print("Piper generated speech and FFmpeg produced a playable MP4; LT/LV voices also synthesized.")
           PY
       - name: Check Home Master browser JavaScript
         run: |
