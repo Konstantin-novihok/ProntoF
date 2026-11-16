@@ -1,77 +1,69 @@
-# ProntoF — отдельный тестовый контейнер TrueNAS
+# Home Master + внутренний ProntoF worker на TrueNAS
 
-## Важно
+В репозитории `Konstantin-novihok/ProntoF` находятся оба компонента. Пользователь открывает только Home Master. Внутренний worker ProntoF не публикует порт на NAS и доступен только внутри Docker-сети.
 
-ProntoF — самостоятельное приложение. Не используйте каталоги данных, тома, БД, контейнеры или секреты Home Master / ProntoFix. Для теста создайте отдельный каталог и отдельный контейнер.
+## Состав контейнеров
 
-## 1. Каталоги
+- `home-master-test` — интерфейс, авторизация, пользователи, заказы, общая библиотека файлов; порт по умолчанию 30801.
+- `prontof-worker-test` — внутренний API и CPU-обработка видео; порт 8000 доступен только сервисам Docker.
 
-Пример для пула ProntoFix:
+## Каталоги данных
+
+Пример для пула `ProntoFix`:
+
+- Home Master: `/mnt/ProntoFix/apps/prontof/home-master-data`
+- ProntoF worker: `/mnt/ProntoFix/apps/prontof/data`
+
+Каталоги независимы. Не удаляйте их при обновлении контейнеров.
+
+## Настройка
+
+В каталоге проекта:
 
 ```bash
-sudo mkdir -p /mnt/ProntoFix/apps/prontof/data
-sudo mkdir -p /mnt/ProntoFix/apps/prontof/app
-sudo chown -R admin:admin /mnt/ProntoFix/apps/prontof
-```
-
-В каталог app поместите содержимое репозитория ProntoF.
-
-## 2. Настройка
-
-Из каталога приложения:
-
-```bash
-cd /mnt/ProntoFix/apps/prontof/app
 cp .env.example .env
 ```
 
-Сгенерируйте секрет и задайте пароль владельца:
+Сгенерируйте три отдельных секрета:
 
 ```bash
-SECRET=$(openssl rand -hex 48)
-sed -i "s/REPLACE_WITH_LONG_RANDOM_SECRET/$SECRET/" .env
+openssl rand -hex 48
+openssl rand -hex 48
+openssl rand -hex 48
 ```
 
-Откройте .env и замените OWNER_PASSWORD на собственный пароль. Не публикуйте .env и не отправляйте его в GitHub.
+Вставьте их в `.env` в поля `SECRET_KEY`, `PRONTOF_SECRET_KEY` и `INTERNAL_API_KEY`. Задайте собственный `OWNER_PASSWORD`. `PRONTOF_OWNER_PASSWORD` — технический пароль внутреннего worker, пользователь его не использует.
 
-## 3. Сборка и запуск
+Проверьте пути `HOME_MASTER_DATA` и `PRONTOF_DATA`. Не отправляйте `.env` в GitHub и не публикуйте внутренний ключ.
+
+## Запуск и обновление
+
+После резервной копии текущих compose-файлов и проверки существующих контейнеров:
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose config
+docker compose up -d --build
 docker compose ps
-docker compose logs -f --tail=100
 ```
 
-Первый запуск может занять время из-за установки Python-зависимостей. Модель Faster-Whisper будет загружена при первой обработке видео.
+Для обновления используйте свежие исходники ветки `main` и повторите `docker compose up -d --build`. Не используйте `docker compose down -v` и не удаляйте каталоги данных.
 
-## 4. Проверка
+## Проверка
 
-Откройте:
+Home Master открывается по адресу:
 
-- `http://IP-АДРЕС-NAS:30810/`
-- `http://IP-АДРЕС-NAS:30810/docs`
-- `http://IP-АДРЕС-NAS:30810/api/health`
+```
+http://IP-АДРЕС-NAS:30801/app/
+```
 
-Порт 30810 выбран как отдельный тестовый порт. Если он занят, измените PRONTOF_PORT в .env.
-
-## 5. Данные и ограничения
-
-- Все данные приложения находятся только в отдельном каталоге data.
-- Удаление контейнера не должно удалять каталог data.
-- Обработка ограничена одним CPU worker, чтобы не перегружать сервер.
-- MAX_UPLOAD_GB задаёт программный предел одного файла, но фактический предел определяется свободным местом, файловой системой и прокси.
-- Для видео до 500 GB необходимо иметь дополнительное место для оригинала, временного аудио и результатов. Текущий свободный объём пула следует проверить до таких тестов.
-- На CPU распознавание длинных видео может занимать много времени.
-- На первом этапе перевод работает только для установленных языковых пар Argos Translate; наличие языка в интерфейсе не означает, что пакет перевода уже установлен.
-
-## 6. Полезные команды
+Проверка внутреннего worker из контейнера Home Master:
 
 ```bash
-docker compose ps
-docker compose logs -f --tail=200
-docker compose restart
-docker compose down
+sudo docker exec home-master-test python -c "import urllib.request; print(urllib.request.urlopen('http://prontof-worker:8000/api/health', timeout=10).read().decode())"
 ```
 
-Не используйте `docker compose down -v`, если требуется сохранить данные.
+У worker нет опубликованного порта на NAS. Если требуется проверить API, делайте это из Docker-сети, а не через отдельную страницу ProntoF.
+
+## Видео до 500 GB
+
+500 GB — верхний программный предел одного файла. Это не обещание, что такой файл поместится на текущем пуле. До теста проверьте свободное место: требуется место для исходного файла и временных данных обработки. Загрузка идёт частями; весь файл не помещается в RAM. На CPU обработка больших видео может длиться долго.
