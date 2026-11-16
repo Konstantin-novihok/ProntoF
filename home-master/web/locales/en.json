@@ -472,7 +472,7 @@
   "other_cost": "Other costs",
   "executor_report": "My work report",
   "work_done": "Work completed",
-  "report_materials_json": "Materials JSON, e.g. [{\"name\":\"Part\",\"qty\":1,\"unit\":\"pcs\",\"unit_cost\":12.5}] (optional item_id uses warehouse price)",
+  "report_materials_json": "Materials as JSON. To issue a reservation include reservation_id and qty; for externally purchased materials use name, qty, unit, unit_cost.",
   "submit_report": "Submit report",
   "reserve_material": "Reserve material",
   "no_available_stock": "No available stock",
@@ -513,5 +513,8 @@
   "video_render_ready": "Translated video is ready",
   "video_download": "Download MP4",
   "video_render_failed": "Could not create the video",
-  "video_render_started": "Final video rendering has been queued."
+  "video_render_started": "Final video rendering has been queued.",
+  "cap_reservation_issue": "Issue reserved materials",
+  "reservation_issue": "Issue from warehouse",
+  "reservation_remaining_qty": "remaining"
 }
