@@ -155,23 +155,56 @@ jobs:
               assert abs(settled.json()["cost_price"] - 53) < 0.01, settled.json()
               print("Collaboration, private report files, warehouse reservation and multi-executor costing passed.")
           PY
-      - name: Import video worker and verify Piper render pipeline
+      - name: Import video worker and render a short Ukrainian MP4 with Piper
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           python -m pip install -r server/requirements.txt
-          mkdir -p "$RUNNER_TEMP/prontof-worker-smoke"
-          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
+          mkdir -p "$RUNNER_TEMP/prontof-worker-smoke" "$RUNNER_TEMP/prontof-piper-voices"
+          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" PIPER_VOICE_DIR="$RUNNER_TEMP/prontof-piper-voices" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
+          import json, subprocess, uuid
+          from pathlib import Path
           import app
           paths = set(app.app.openapi()["paths"])
           assert "/internal/jobs/{job_id}/render" in paths
           assert "/internal/jobs/{job_id}/render/preview" in paths
           assert "/internal/jobs/{job_id}/render/download" in paths
           assert "/internal/jobs/{job_id}/render/ack" in paths
-          from rendering import voice_for_language
+          from rendering import render_translated_video, voice_for_language
           assert voice_for_language("uk") == "uk_UA-ukrainian_tts-medium"
           assert voice_for_language("ru")
           assert voice_for_language("bg") == "bg_BG-dimitar-medium"
           assert voice_for_language("lt") is None and voice_for_language("lv") is None
-          print("Worker render routes and Piper voice catalogue loaded.")
+          app.Base.metadata.create_all(app.engine)
+          source = app.VIDEO_DIR / "ci-render-source.mp4"
+          subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y",
+              "-f","lavfi","-i","color=c=black:s=320x240:r=12:d=2",
+              "-f","lavfi","-i","sine=frequency=440:sample_rate=22050:duration=2",
+              "-shortest","-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac",str(source)],check=True)
+          job_id = str(uuid.uuid4())
+          with app.SessionLocal() as db:
+              user = app.User(username="ci-render",full_name="CI",password_hash="ci",role="user")
+              db.add(user); db.flush()
+              video = app.Video(id=str(uuid.uuid4()),owner_id=user.id,filename="ci.mp4",
+                                stored_name=source.name,size_bytes=source.stat().st_size,visibility="private")
+              db.add(video); db.flush()
+              job = app.Job(id=job_id,video_id=video.id,owner_id=user.id,status="done",progress=100,
+                            source_language="en",target_language="uk",transcript="Hello",
+                            translated_text="Привіт",segments_json=json.dumps([
+                                {"start":0.1,"end":1.9,"text":"Hello","translated":"Привіт, це перевірка синтезу мовлення."}
+                            ],ensure_ascii=False))
+              db.add(job); db.commit()
+          render_translated_video(job_id)
+          with app.SessionLocal() as db:
+              output = db.get(app.RenderedOutput,job_id)
+              assert output and output.status == "ready", output.error if output else "no output row"
+              rendered = Path(output.file_path)
+              assert rendered.is_file() and rendered.stat().st_size > 1024
+              probe = subprocess.check_output(["ffprobe","-v","error","-show_entries","stream=codec_type",
+                                               "-of","json",str(rendered)],text=True)
+              kinds = {s["codec_type"] for s in json.loads(probe)["streams"]}
+              assert {"video","audio"} <= kinds
+          print("Piper generated speech and FFmpeg produced a playable MP4.")
           PY
       - name: Check Home Master browser JavaScript
         run: |
