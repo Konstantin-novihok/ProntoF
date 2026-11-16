@@ -370,7 +370,7 @@ async def _proxy_render_file(oid: int, job_id: str, user: User, db: Session,
             await client.aclose()
             # Acknowledge only after the entire response has been sent to the client.
             # A disconnected/partial transfer leaves the temporary MP4 available for retry.
-            if mode == "download" and completed:
+            if mode == "download" and completed and request.query_params.get("client") != "android":
                 try:
                     await _remote("POST", f"/internal/jobs/{job_id}/render/ack")
                 except Exception:
@@ -378,6 +378,17 @@ async def _proxy_render_file(oid: int, job_id: str, user: User, db: Session,
     media_type = remote.headers.get("content-type", "video/mp4").split(";")[0]
     return StreamingResponse(stream(), status_code=remote.status_code, media_type=media_type,
                              headers=forward_headers)
+
+
+
+@router.post("/orders/{oid}/video-processing/{job_id}/render/ack")
+async def translated_video_ack(oid: int, job_id: str,
+                               user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _video_job_row(oid, job_id, user, db)
+    result = await _remote("POST", f"/internal/jobs/{job_id}/render/ack")
+    log(db, user, "video_render_downloaded", "order", oid, f"job={job_id}")
+    db.commit()
+    return result.json()
 
 
 @router.get("/orders/{oid}/video-processing/{job_id}/render/preview")
