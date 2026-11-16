@@ -166,6 +166,31 @@ route('order', async (id) => {
     const users = (await api('GET', '/users?role=3')).filter((u) => u.is_active && u.verification === 'verified' && (isAdmin() || u.department_id === o.department_id));
     if (!users.length) throw new Error(t('no_executors'));
     const uid = await pick(t('assign_executor'), users.map((u) => ({label: personName(u) + (u.company_name ? ' · ' + u.company_name : ''), value: u.id}))); if (uid) await post('assign', {executor_id: uid}); });
+  if (role === 3) {
+    const videoSources = [
+      ...videoJobs.filter((j) => ['done','error'].includes(j.status)).map((j) => ({label:`${j.filename} · ${j.target_language || ''} · ${j.status}`,value:'job:'+j.job_id})),
+      ...d.media.filter((m) => (m.mime || '').startsWith('video/')).map((m) => ({label:m.original,value:'media:'+m.id}))
+    ];
+    if (videoSources.length) act('translate_video', async () => {
+      const languages = [
+        ['uk','Українська'],['ru','Русский'],['de','Deutsch'],['fr','Français'],['it','Italiano'],['en','English'],
+        ['ar','العربية'],['pt','Português'],['es','Español'],['bg','Български'],['pl','Polski'],['cs','Čeština'],
+        ['sk','Slovenčina'],['lt','Lietuvių'],['lv','Latviešu'],['no','Norsk']
+      ];
+      const v = await formModal(t('translate_video'), [
+        {key:'source',label:'video_source',type:'select',options:videoSources},
+        {key:'target_language',label:'video_target_language',type:'select',value:'uk',options:languages.map(([value,label])=>({value,label}))}
+      ]);
+      if (!v || !v.source || !v.target_language) return;
+      const [kind,sourceId]=v.source.split(':');
+      const query=new URLSearchParams({target_language:v.target_language});
+      const path=kind==='job'
+        ? `/orders/${id}/video-processing/from-job/${encodeURIComponent(sourceId)}?${query}`
+        : `/orders/${id}/video-processing/from-media/${encodeURIComponent(sourceId)}?${query}`;
+      const result=await api('POST',path,{});
+      toast(t('video_queued')+' · '+result.job_id);reload();
+    });
+  }
   if (role === 3 && o.executor_id == null && !['done', 'cancelled'].includes(o.status)) {
     act('take_order', async () => { await api('POST', `/orders/${id}/self-claim`, {}); reload(); }, 'go');
   }
