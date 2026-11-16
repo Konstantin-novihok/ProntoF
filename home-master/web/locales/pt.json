@@ -476,5 +476,9 @@
   "video_render_ready": "O vídeo traduzido está pronto",
   "video_download": "Baixar MP4",
   "video_render_failed": "Não foi possível criar o vídeo",
-  "video_render_started": "A criação do vídeo final foi adicionada à fila."
+  "video_render_started": "A criação do vídeo final foi adicionada à fila.",
+  "cap_reservation_issue": "Entregar materiais reservados",
+  "reservation_issue": "Entregar do armazém",
+  "reservation_remaining_qty": "restante",
+  "report_materials_json": "Materiais em JSON. Para dar baixa numa reserva, inclua reservation_id e qty; para materiais comprados externamente, use name, qty, unit, unit_cost."
 }
