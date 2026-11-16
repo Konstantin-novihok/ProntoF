@@ -278,7 +278,7 @@ const NAV = [
   ['new', 'new_order', [1, 2, 3, 4, 5, 7]],
   ['map', 'map', [1, 2, 3, 7]],
   ['chat', 'chat', [1, 2, 3, 6, 7]],
-  ['warehouse', 'warehouse', [1, 2, 3, 6, 7]],
+  ['warehouse', 'warehouse', [1, 2, 3, 4, 5, 6, 7]],
   ['users', 'users', [1, 2, 4, 7]],
   ['analytics', 'analytics', [2, 6]],
   ['myfinance', 'my_finance', [4]],
