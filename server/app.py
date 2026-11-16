@@ -625,10 +625,14 @@ def internal_video_delete(video_id: str, request: Request, db: Session = Depends
     if job_ids:
         for receipt in db.scalars(select(InternalUploadReceipt).where(InternalUploadReceipt.job_id.in_(job_ids))).all():
             db.delete(receipt)
-    try:
-        resolve_video_path(video).unlink(missing_ok=True)
-    except FileNotFoundError:
-        pass
+    # Imported customer/executor media is shared with Home Master: remove only the
+    # worker-owned original_video binary, never the source attachment itself.
+    owns_binary = not video.stored_name.startswith("orders/") or "/customer/original_video/" in video.stored_name
+    if owns_binary:
+        try:
+            resolve_video_path(video).unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
     db.delete(video)
     db.commit()
     return {"ok": True, "job_ids": job_ids}
