@@ -11,15 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY server/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-
 COPY server/app.py ./app.py
-COPY web ./web
 
 ENV DATA_DIR=/data \
-    WEB_DIR=/app/web \
     WHISPER_MODEL=small \
     CPU_THREADS=2 \
-    MAX_UPLOAD_GB=500
+    MAX_UPLOAD_GB=500 \
+    INTERNAL_ONLY=1
 
 VOLUME ["/data"]
 EXPOSE 8000
