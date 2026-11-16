@@ -399,7 +399,7 @@ def translate_segment(text: str, source: str, target: str) -> str:
         pair = next((x for x in src.translations_from if x.to_lang.code == target), None)
         return pair.translate(text) if pair else ""
     except Exception:
-        return text
+        return ""
 
 def process_job(job_id: str):
     with SessionLocal() as db:
