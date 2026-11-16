@@ -1,27 +1,55 @@
 services:
-  prontof:
+  prontof-worker:
     build:
       context: .
       dockerfile: server/Dockerfile
-    image: prontof:0.1.0
-    container_name: prontof-test
+    image: prontof-internal:main
+    container_name: prontof-worker-test
     restart: unless-stopped
-    ports:
-      - "${PRONTOF_PORT:-30810}:8000"
+    expose:
+      - "8000"
     environment:
       DATA_DIR: /data
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD in .env}
+      SECRET_KEY: ${PRONTOF_SECRET_KEY:?Set PRONTOF_SECRET_KEY in .env}
+      OWNER_PASSWORD: ${PRONTOF_OWNER_PASSWORD:?Set PRONTOF_OWNER_PASSWORD in .env}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
+      INTERNAL_ONLY: "1"
       ALLOW_REGISTRATION: "0"
       MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-500}
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       CPU_THREADS: ${CPU_THREADS:-2}
       TZ: ${TZ:-Europe/Kyiv}
     volumes:
-      - ${PRONTOF_DATA:-./data}:/data
+      - ${PRONTOF_DATA:-./data/prontof}:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  home-master:
+    build:
+      context: .
+      dockerfile: home-master/Dockerfile
+    image: home-master-prontof:main
+    container_name: home-master-test
+    restart: unless-stopped
+    depends_on:
+      prontof-worker:
+        condition: service_healthy
+    ports:
+      - "${HOME_MASTER_PORT:-30801}:8000"
+    environment:
+      DATA_DIR: /data
+      WEB_DIR: /srv/web
+      OWNER_USERNAME: ${OWNER_USERNAME:-owner}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD in .env}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-1}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      MAP_PROVIDER: ${MAP_PROVIDER:-osm}
+      TZ: ${TZ:-Europe/Kyiv}
+      PRONTOF_API_URL: http://prontof-worker:8000
+      PRONTOF_INTERNAL_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
+    volumes:
+      - ${HOME_MASTER_DATA:-./data/home-master}:/data
