@@ -297,7 +297,7 @@ route('new', async () => {
       videoInfo.textContent = t('video_uploading');
       try {
         const result = await uploadVideoForOrder(orderId, D.videoFile, videoLang.value, D.videoUploadId, (pct, part, total) => {
-          videoInfo.textContent = `${t('video_uploading')}: ${pct}% (${part}/${total})`;
+          videoInfo.textContent = `${t('video_uploading')}: ${pct}% (${fmtBytes(part)} / ${fmtBytes(total)})`;
         });
         videoInfo.textContent = t('video_queued') + ' · ' + result.job_id;
         D.videoFile = null; D.videoUploadId = null;
