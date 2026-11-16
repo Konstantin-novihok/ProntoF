@@ -36,7 +36,19 @@ jobs:
           assert "/orders/{oid}/video-processing/uploads/{upload_id}/chunks/{index}" in paths  # backward compatibility
           assert "/orders/{oid}/video-processing" in paths
           assert "/storage/files" in paths
-          print("Home Master API imports and video routes are registered.")
+          assert "/orders/{oid}/participants" in paths
+          assert "/orders/{oid}/participants/{uid}" in paths
+          assert "/orders/{oid}/self-claim" in paths
+          assert "/orders/create-as-executor" in paths
+          assert "/orders/{oid}/reports" in paths
+          assert "/orders/{oid}/reports/me" in paths
+          assert "/warehouse/reservations" in paths
+          assert "/warehouse/reservations/{rid}/confirm-payment" in paths
+          assert "/warehouse/reservations/settings/period" in paths
+          assert "/trusted-users/{uid}/capabilities" in paths
+          tables = set(server.Base.metadata.tables)
+          assert {"order_participants", "executor_reports", "trusted_capabilities", "wh_reservations"} <= tables
+          print("Home Master API imports and collaboration/reservation routes are registered.")
           PY
       - name: Check Home Master browser JavaScript
         run: |
