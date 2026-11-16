@@ -9,7 +9,7 @@ import server as core
 from server import ADMINS, EXECUTOR, OWNER, STAFF_ROLES, Base, Order, User, current_user, get_db, get_order, log, need, now
 
 router=APIRouter()
-CAPS={"order_assign","warehouse_reservation_view","reservation_payment_confirm","reservation_period_manage"}
+CAPS={"order_assign","warehouse_reservation_view","reservation_payment_confirm"}
 
 class OrderParticipant(Base):
  __tablename__="order_participants"
@@ -58,7 +58,7 @@ class Reservation(Base):
  created_at:Mapped[dt.datetime]=mapped_column(DateTime,default=now)
 
 def capability(db,user,key):
- if user.role in ADMINS:return True
+ if user.role==OWNER:return True
  row=db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id))
  try:return bool(row and key in json.loads(row.capabilities_json or "[]"))
  except:return False
@@ -99,13 +99,13 @@ def get_caps(user:User=Depends(current_user),db:Session=Depends(get_db)):
 class ParticipantIn(BaseModel): executor_id:int
 @router.get("/orders/{oid}/participants")
 def get_participants(oid:int,user:User=Depends(current_user),db:Session=Depends(get_db)):
- get_order(db,user,oid)
+ need(user,*STAFF_ROLES);get_order(db,user,oid)
  return [p_out(p,db) for p in db.scalars(select(OrderParticipant).where(OrderParticipant.order_id==oid).order_by(OrderParticipant.id))]
 
 @router.post("/orders/{oid}/participants")
 def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
  o=get_order(db,user,oid)
- if user.role not in ADMINS and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
+ if user.role not in (OWNER, 2) and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
  ex=db.get(User,b.executor_id)
  if not ex or ex.role!=EXECUTOR or not ex.is_active or (ex.verification or "verified")!="verified":raise HTTPException(400,"Исполнитель не найден или не проверен")
  if participant(db,oid,ex.id):return p_out(participant(db,oid,ex.id),db)
@@ -118,7 +118,7 @@ def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:S
 @router.delete("/orders/{oid}/participants/{uid}")
 def remove_participant(oid:int,uid:int,user:User=Depends(current_user),db:Session=Depends(get_db)):
  o=get_order(db,user,oid)
- if user.role not in ADMINS and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
+ if user.role not in (OWNER, 2) and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
  p=participant(db,oid,uid)
  if not p:raise HTTPException(404,"Активное назначение не найдено")
  p.active=False;p.ended_at=now()
@@ -155,7 +155,7 @@ def report_out(r,db):
 
 @router.get("/orders/{oid}/reports")
 def get_reports(oid:int,user:User=Depends(current_user),db:Session=Depends(get_db)):
- get_order(db,user,oid)
+ need(user,*STAFF_ROLES);get_order(db,user,oid)
  rows=db.scalars(select(ExecutorReport).where(ExecutorReport.order_id==oid).order_by(ExecutorReport.id)).all()
  if user.role==EXECUTOR:
   if not participant(db,oid,user.id):raise HTTPException(403,"Вы не участник заказа")
