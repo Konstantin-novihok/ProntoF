@@ -29,8 +29,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hm-smoke"
           DATA_DIR="$RUNNER_TEMP/hm-smoke" WEB_DIR="$GITHUB_WORKSPACE/home-master/web" SECRET_KEY="ci-smoke-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-smoke-password" PYTHONPATH="$GITHUB_WORKSPACE/home-master/server" python - <<'PY'
           import server
-          paths = {route.path for route in server.app.routes}
-          assert "/app" in paths
+          paths = set(server.app.openapi()["paths"])
+          mounted = {getattr(route, "path", None) for route in server.app.routes}
+          assert "/app" in mounted
           assert "/orders/{oid}/video-processing/uploads/{upload_id}/chunks/{index}" in paths
           assert "/orders/{oid}/video-processing" in paths
           assert "/storage/files" in paths
