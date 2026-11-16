@@ -236,9 +236,16 @@ route('order', async (id) => {
       h('b', {}, r.executor_name), h('div', {class:'muted small'}, r.status === 'submitted' ? t('report_submitted') : t('report_draft')),
       r.work_done ? h('p', {}, r.work_done) : null, r.comments ? h('p', {class:'muted'}, r.comments) : null,
       h('div', {class:'small'}, `${t('hours')}: ${num(r.labor_hours)} · ${t('other_cost')}: ${money(r.other_cost)}`),
-      r.materials && r.materials.length ? h('ul', {}, r.materials.map((m) => h('li', {}, `${m.name}: ${m.qty} ${m.unit || ''}`))) : null)),
+      r.materials && r.materials.length ? h('ul', {}, r.materials.map((m) => h('li', {}, `${m.name}: ${m.qty} ${m.unit || ''}`))) : null,
+      r.files && r.files.length ? h('div', {class:'small'}, r.files.map((f) => h('div', {class:'row'},
+        h('a', {href:fileUrl(f.id),target:'_blank',rel:'noopener'}, f.original),
+        h('button',{class:'ghost small',onclick:guard(()=>saveUrl(fileUrl(f.id),f.original,f.mime))},t('save_as'))))) : null)),
     role === 3 && participants.some((p) => p.user_id === S.me.id && p.active) && !reports.some((r) => r.executor_id === S.me.id && r.status === 'submitted')
-      ? h('button', {class:'ghost', onclick:guard(async () => {
+      ? h('div', {}, h('button',{class:'ghost',onclick:guard(async()=>{
+          const fl=await chooseFiles('image/*,video/*,.pdf');if(!fl.length)return;
+          await uploadFiles(`/orders/${id}/reports/me/files`,fl);toast(t('uploaded'));reload();
+        })},t('report_attach_files')),
+        h('button', {class:'ghost', onclick:guard(async () => {
           const v = await formModal(t('executor_report'), [
             {key:'work_done',label:'work_done',type:'textarea'},
             {key:'comments',label:'comments',type:'textarea'},
@@ -251,7 +258,7 @@ route('order', async (id) => {
           if (!Array.isArray(materials)) throw new Error(t('report_materials_json'));
           await api('PUT', `/orders/${id}/reports/me`, {work_done:v.work_done,comments:v.comments,materials,labor_hours:parseFloat(v.labor_hours)||0,other_cost:parseFloat(v.other_cost)||0,submit:true});
           toast(t('saved')); reload();
-        })}, t('submit_report')) : null) : null;
+        })}, t('submit_report'))) : null) : null;
   const media = d.media.map((m) => mediaItem(m));
   const videoProcessing = videoJobs.length ? h('div', {}, h('div', {class:'row'}, h('h2', {class:'grow'}, t('video_processing')),
     h('button', {class:'ghost small', onclick: () => render()}, t('video_refresh'))),
