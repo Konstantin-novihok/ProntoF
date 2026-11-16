@@ -480,5 +480,6 @@
   "cap_reservation_issue": "Entregar materiais reservados",
   "reservation_issue": "Entregar do armazém",
   "reservation_remaining_qty": "restante",
-  "report_materials_json": "Materiais em JSON. Para dar baixa numa reserva, inclua reservation_id e qty; para materiais comprados externamente, use name, qty, unit, unit_cost."
+  "report_materials_json": "Materiais em JSON. Para dar baixa numa reserva, inclua reservation_id e qty; para materiais comprados externamente, use name, qty, unit, unit_cost.",
+  "video_ai_voice_notice": "Este vídeo usa uma voz gerada por IA. Se o publicar, indique que a fala é sintética."
 }
