@@ -324,7 +324,7 @@ def issue_reservation(db: Session, reservation_id: int, qty: float, user: User, 
     if user.role == EXECUTOR:
         if reservation.user_id != user.id or not participant(db, reservation.order_id, user.id):
             raise HTTPException(403, "Вы можете выдать только свой резерв в назначенном заказе")
-    elif user.role not in MANAGERS and not capability(db, user, "reservation_payment_confirm"):
+    elif user.role not in MANAGERS and not capability(db, user, "warehouse_reservation_issue"):
         raise HTTPException(403, "Недостаточно прав для выдачи резерва")
     order = db.get(Order, reservation.order_id)
     if not order or order.settled_at:
