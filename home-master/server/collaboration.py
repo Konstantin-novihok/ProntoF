@@ -116,6 +116,7 @@ def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:S
  if user.role != OWNER and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
  ex=db.get(User,b.executor_id)
  if not ex or ex.role!=EXECUTOR or not ex.is_active or (ex.verification or "verified")!="verified":raise HTTPException(400,"Исполнитель не найден или не проверен")
+ if user.role==HEAD and ex.department_id!=user.department_id:raise HTTPException(403,"Исполнитель из другого направления")
  if participant(db,oid,ex.id):return p_out(participant(db,oid,ex.id),db)
  p=OrderParticipant(order_id=oid,user_id=ex.id,assigned_by=user.id,method="assigned");db.add(p)
  if o.executor_id is None:o.executor_id=ex.id
