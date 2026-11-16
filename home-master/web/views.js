@@ -476,7 +476,8 @@ route('users', async () => {
         const definitions = [
           ['order_assign', t('cap_order_assign')],
           ['warehouse_reservation_view', t('cap_reservation_view')],
-          ['reservation_payment_confirm', t('cap_payment_confirm')]
+          ['reservation_payment_confirm', t('cap_payment_confirm')],
+          ['warehouse_reservation_issue', t('cap_reservation_issue')]
         ];
         const checks = definitions.map(([key,label]) => {
           const c = h('input', {type:'checkbox',checked:saved.has(key)});
