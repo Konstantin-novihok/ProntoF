@@ -64,6 +64,18 @@ GOOGLE_MAPS_KEY = os.getenv("GOOGLE_MAPS_KEY", "")          # ключ Google Ma
 CUSTOM_TILE_URL = os.getenv("CUSTOM_TILE_URL", "")          # напр. https://tiles.my.com/{z}/{x}/{y}.png
 
 
+def media_path(media: "Media") -> str:
+    """Новые файлы заказов лежат в DATA_DIR/orders; старые остаются в MEDIA_DIR."""
+    filename = media.filename or ""
+    if filename.startswith("orders/"):
+        path = os.path.abspath(os.path.join(DATA_DIR, filename))
+        root = os.path.abspath(os.path.join(DATA_DIR, "orders"))
+        if os.path.commonpath([root, path]) != root:
+            raise HTTPException(400, "Некорректный путь файла")
+        return path
+    return os.path.join(MEDIA_DIR, filename)
+
+
 def enc(value: str) -> str:
     return _FERNET.encrypt(value.encode()).decode() if value else ""
 
@@ -1118,8 +1130,11 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
                        or expected_size is None or not expected_size.isdigit()):
         raise HTTPException(400, "Idempotent uploads require X-Content-SHA256 and X-Content-Size")
     ext, kind = check_upload(file.filename, file.content_type)
-    name, size = await save_stream(file, MEDIA_DIR, ext)
-    path = os.path.join(MEDIA_DIR, name)
+    order_folder = os.path.join(DATA_DIR, "orders", str(o.id), "customer", "files")
+    os.makedirs(order_folder, exist_ok=True)
+    name, size = await save_stream(file, order_folder, ext)
+    path = os.path.join(order_folder, name)
+    stored_name = os.path.relpath(path, DATA_DIR).replace(os.sep, "/")
     digest = hashlib.sha256()
     with open(path, "rb") as saved:
         for chunk in iter(lambda: saved.read(1024 * 1024), b""):
@@ -1128,7 +1143,7 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
     if upload_key and (actual_hash != expected_hash or size != int(expected_size)):
         os.remove(path)
         raise HTTPException(400, "Uploaded content hash or size mismatch")
-    m = Media(order_id=o.id, user_id=user.id, filename=name, original=(file.filename or name)[:200],
+    m = Media(order_id=o.id, user_id=user.id, filename=stored_name, original=(file.filename or name)[:200],
               mime=guess_mime(name), size=size)
     db.add(m)
     db.flush()
@@ -1151,7 +1166,7 @@ def get_media(mid: int, user: User = Depends(current_user), db: Session = Depend
     if not m:
         raise HTTPException(404)
     get_order(db, user, m.order_id)   # проверка права видеть заказ
-    return file_response(os.path.join(MEDIA_DIR, m.filename), m.original, EXT_KIND.get(os.path.splitext(m.filename)[1].lstrip("."), "doc"), m.mime)
+    return file_response(media_path(m), m.original, EXT_KIND.get(os.path.splitext(m.filename)[1].lstrip(".") or os.path.splitext(m.original)[1].lstrip("."), "doc"), m.mime)
 
 
 # ---------- Журнал ----------
