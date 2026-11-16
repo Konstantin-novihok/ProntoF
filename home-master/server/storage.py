@@ -22,7 +22,7 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from server import (ADMINS, EXECUTOR, EXT_KIND, HEAD, MEDIA_DIR, DOCS_DIR, OBSERVER, OWNER, STAFF_ROLES, Base, Media, Order, User,
-                    UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, media_path, need, now, save_stream,
+                    UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, media_path, need, now, save_stream, user_doc_path,
                     DATA_DIR, ORDER_DATA_DIR)
 
 router = APIRouter()
@@ -280,7 +280,7 @@ def all_files(db: Session):
                          sender=users.get(m.user_id, "?"), sender_id=m.user_id, date=m.created_at.isoformat(), source="order", ref=m.order_id,
                          kind=EXT_KIND.get(os.path.splitext(m.filename)[1].lstrip("."), "doc")))
     for d in db.scalars(select(UserDoc)):
-        rows.append(dict(key=f"d:{d.id}", name=d.original, size=_size(os.path.join(DOCS_DIR, d.filename), None), mime=d.mime,
+        rows.append(dict(key=f"d:{d.id}", name=d.original, size=_size(user_doc_path(d), None), mime=d.mime,
                          sender=users.get(d.user_id, "?"), sender_id=d.user_id, date=d.created_at.isoformat(), source="document", ref=d.user_id,
                          kind="image" if d.mime == "image/jpeg" else "doc"))
     for f in db.scalars(select(StoredFile)):
@@ -330,7 +330,7 @@ def _locate(db: Session, key: str):
         return (o, media_path(o)) if o else (None, None)
     if kind == "d":
         o = db.get(UserDoc, sid)
-        return (o, os.path.join(DOCS_DIR, o.filename)) if o else (None, None)
+        return (o, user_doc_path(o)) if o else (None, None)
     if kind == "f":
         o = db.get(StoredFile, sid)
         return (o, stored_file_path(o)) if o else (None, None)
