@@ -486,5 +486,7 @@
   "cap_order_assign": "Assign and reassign executors",
   "cap_reservation_view": "View who reserved stock",
   "cap_payment_confirm": "Confirm reservation payment",
-  "save": "Save"
+  "save": "Save",
+  "reservation_period": "Reservation period (hours)",
+  "reserved_by": "Reserved by"
 }
