@@ -252,3 +252,30 @@ def availability(item_id:int,user:User=Depends(current_user),db:Session=Depends(
  expire(db,item_id);stock=float(db.scalar(select(func.coalesce(func.sum(Stock.qty),0.0)).where(Stock.item_id==item_id,Stock.holder_user_id.is_(None))) or 0)
  held=sum(float(x.qty) for x in db.scalars(select(Reservation).where(Reservation.item_id==item_id,Reservation.status=="active")))
  db.commit();return {"item_id":item_id,"total":stock,"reserved":held,"available":max(0,stock-held),"unit":it.unit}
+
+
+class ExecutorOrderIn(BaseModel):
+ title:str=Field(min_length=1,max_length=200)
+ description:str=""
+ address:str=""
+ lat:Optional[float]=None
+ lon:Optional[float]=None
+ service_type:str=""
+ currency:str="UAH"
+
+@router.post("/orders/create-as-executor")
+def create_order_as_executor(b:ExecutorOrderIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
+ need(user,EXECUTOR)
+ if not user.is_active or (user.verification or "verified")!="verified":raise HTTPException(403,"Учётная запись не активна или не проверена")
+ if b.lat is not None and not (-90<=b.lat<=90 and -180<=(b.lon or 0)<=180):raise HTTPException(400,"Некорректные координаты")
+ cur=(b.currency or "UAH").strip().upper()
+ if len(cur)!=3 or not cur.isascii() or not cur.isalpha():raise HTTPException(400,"Некорректная валюта")
+ o=Order(title=b.title.strip(),description=b.description[:20000],address=b.address[:300],lat=b.lat,lon=b.lon,
+         department_id=user.department_id,client_id=None,created_by=user.id,service_type=b.service_type[:80],currency=cur)
+ db.add(o);db.flush()
+ p=OrderParticipant(order_id=o.id,user_id=user.id,assigned_by=user.id,method="self_claim")
+ db.add(p);o.executor_id=user.id;o.status="accepted"
+ log(db,user,"create_order","order",o.id,"created by executor")
+ log(db,user,"self_claim_order","order",o.id,f"executor={user.id}")
+ db.commit()
+ return core.order_out(db,o,user)
