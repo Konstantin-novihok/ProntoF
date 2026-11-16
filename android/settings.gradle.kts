@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ProntoF"
+rootProject.name = "HomeMaster"
 include(":app")
