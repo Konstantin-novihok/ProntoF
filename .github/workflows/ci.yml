@@ -58,6 +58,77 @@ jobs:
           assert {"manufacturer", "package_volume", "package_unit"} <= set(Item.__table__.columns.keys())
           print("Home Master API imports and collaboration/reservation routes are registered.")
           PY
+      - name: Exercise collaborative orders, reports, file storage and warehouse reservations
+        run: |
+          mkdir -p "$RUNNER_TEMP/hm-integration"
+          DATA_DIR="$RUNNER_TEMP/hm-integration" WEB_DIR="$GITHUB_WORKSPACE/home-master/web" SECRET_KEY="ci-integration-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-integration-password" PYTHONPATH="$GITHUB_WORKSPACE/home-master/server" python - <<'PY'
+          from pathlib import Path
+          from fastapi.testclient import TestClient
+          import server
+          from warehouse import Item, Stock
+          from collaboration import OrderParticipant
+
+          with TestClient(server.app) as client:
+              with server.SessionLocal() as db:
+                  owner = db.scalar(server.select(server.User).where(server.User.role == server.OWNER))
+                  e1 = server.User(username="executor_one", password_hash=server.hash_password("executor-password"), role=server.EXECUTOR, full_name="Executor One", rate_type="hourly", rate_value=15)
+                  e2 = server.User(username="executor_two", password_hash=server.hash_password("executor-password"), role=server.EXECUTOR, full_name="Executor Two", rate_type="hourly", rate_value=20)
+                  customer = server.User(username="customer_one", password_hash=server.hash_password("customer-password"), role=server.CLIENT, full_name="Customer One")
+                  db.add_all([e1, e2, customer])
+                  db.flush()
+                  tokens = {"owner":server.make_token(owner),"e1":server.make_token(e1),"e2":server.make_token(e2),"customer":server.make_token(customer)}
+                  item = Item(name="CI Filter", sku="CI-001", manufacturer="CI", unit="pcs", unit_cost=5, created_by=owner.id)
+                  db.add(item)
+                  db.flush()
+                  stock = Stock(item_id=item.id, holder_user_id=None, qty=10)
+                  db.add(stock)
+                  ids = {"owner":owner.id,"e1":e1.id,"e2":e2.id,"customer":customer.id,"item":item.id}
+                  db.commit()
+
+              def headers(key):
+                  return {"Authorization":"Bearer "+tokens[key]}
+
+              created = client.post("/orders/create-as-executor",headers=headers("e1"),json={"title":"CI shared order","description":"integration test","address":"Test address"})
+              assert created.status_code == 200, created.text
+              oid = created.json()["id"]
+              assert client.get("/orders",headers=headers("e2")).status_code == 200
+              assigned = client.post(f"/orders/{oid}/participants",headers=headers("owner"),json={"executor_id":ids["e2"]})
+              assert assigned.status_code == 200, assigned.text
+              assert (Path("$RUNNER_TEMP") if False else Path(server.DATA_DIR) / "orders" / str(oid) / "history").is_dir()
+              user_index = Path(server.DATA_DIR) / "users" / f"{ids['e2']}_executor_two" / "orders" / f"{oid}.json"
+              assert user_index.is_file(), str(user_index)
+
+              reservation = client.post("/warehouse/reservations",headers=headers("e2"),json={"item_id":ids["item"],"order_id":oid,"qty":4})
+              assert reservation.status_code == 200, reservation.text
+              rid = reservation.json()["id"]
+              private_view = client.get("/warehouse/reservations",headers=headers("e2")).json()
+              assert private_view and "reserved_by" not in private_view[0]
+              public_stock = client.get("/warehouse/items",headers=headers("customer")).json()
+              ci_item = next(x for x in public_stock if x["id"] == ids["item"])
+              assert ci_item["reserved"] == 4 and ci_item["available"] == 6
+              paid = client.post(f"/warehouse/reservations/{rid}/confirm-payment",headers=headers("owner"),json={})
+              assert paid.status_code == 200 and paid.json()["paid"] and paid.json()["expires_at"] is None
+
+              upload = client.post(f"/orders/{oid}/reports/me/files",headers=headers("e2"),files={"file":("evidence.txt",b"report evidence","text/plain")})
+              assert upload.status_code == 200, upload.text
+              report = client.put(f"/orders/{oid}/reports/me",headers=headers("e2"),json={
+                  "work_done":"Replaced filter","comments":"Completed","materials":[{"name":"Filter","qty":2,"unit":"pcs","unit_cost":5}],
+                  "labor_hours":1.5,"other_cost":3,"submit":True})
+              assert report.status_code == 200, report.text
+              assert report.json()["files"]
+              file_id = report.json()["files"][0]["id"]
+              assert client.get(f"/files/{file_id}",headers=headers("e2")).status_code == 200
+              assert client.get(f"/files/{file_id}",headers=headers("e1")).status_code == 403
+
+              priced = client.post(f"/orders/{oid}/finance",headers=headers("owner"),json={"price":100})
+              assert priced.status_code == 200, priced.text
+              done = client.post(f"/orders/{oid}/status",headers=headers("owner"),json={"status":"done"})
+              assert done.status_code == 200, done.text
+              settled = client.post(f"/orders/{oid}/settle",headers=headers("owner"),json={})
+              assert settled.status_code == 200, settled.text
+              assert abs(settled.json()["cost_price"] - 43) < 0.01, settled.json()
+              print("Collaboration, private report files, warehouse reservation and multi-executor costing passed.")
+          PY
       - name: Check Home Master browser JavaScript
         run: |
           set -euo pipefail
