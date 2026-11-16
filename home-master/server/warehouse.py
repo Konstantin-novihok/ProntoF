@@ -341,7 +341,7 @@ def issue_reservation(db: Session, reservation_id: int, qty: float, user: User, 
     if not stock or stock.qty + 1e-9 < qty:
         raise HTTPException(409, "Фактический остаток склада меньше количества резерва")
     stock.qty = round(stock.qty - qty, 6)
-    unit_cost = float(reservation.unit_cost or item.unit_cost or 0)
+    unit_cost = float(reservation.unit_cost if reservation.unit_cost is not None else (item.unit_cost or 0))
     issue = ReservationIssue(reservation_id=reservation.id, item_id=item.id, order_id=order.id,
                              qty=qty, unit_cost=unit_cost, issued_by=user.id)
     db.add(issue)
