@@ -495,5 +495,17 @@
   "package_volume": "Объём упаковки/тары",
   "package_unit": "Единица объёма тары",
   "translate_video": "Перевести оригинальное видео",
-  "video_source": "Исходное видео"
+  "video_source": "Исходное видео",
+  "update_available": "Доступно обновление Home Master {version}",
+  "update_installed": "Установлена версия {version}. Обновление загружено на ваш сервер.",
+  "update_benefit": "Это сделает использование приложения комфортнее и позволит нам выполнять работу быстрее и качественнее.",
+  "update_download_install": "Скачать и установить",
+  "update_later": "Позже",
+  "update_settings_title": "Обновление приложения",
+  "update_settings_hint": "Проверить новую версию Home Master и загрузить APK.",
+  "update_check": "Проверить обновления",
+  "update_download": "Скачать доступное обновление",
+  "update_none": "Новых опубликованных обновлений нет.",
+  "update_module_missing": "Модуль обновлений ещё не загружен.",
+  "update_check_error": "Не удалось проверить обновления: {error}"
 }
