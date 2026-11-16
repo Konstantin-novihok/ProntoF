@@ -119,6 +119,11 @@ jobs:
               assert ci_item["reserved"] == 4 and ci_item["available"] == 6
               paid = client.post(f"/warehouse/reservations/{rid}/confirm-payment",headers=headers("owner"),json={})
               assert paid.status_code == 200 and paid.json()["paid"] and paid.json()["expires_at"] is None
+              # Warehouse price changes after reservation; the reservation must retain its original cost.
+              with server.SessionLocal() as db:
+                  item_row = db.get(Item, ids["item"])
+                  item_row.unit_cost = 9
+                  db.commit()
 
               upload = client.post(f"/orders/{oid}/reports/me/files",headers=headers("e2"),files={"file":("evidence.txt",b"report evidence","text/plain")})
               assert upload.status_code == 200, upload.text
@@ -137,8 +142,9 @@ jobs:
                   stock_row = db.scalar(server.select(Stock).where(Stock.item_id == ids["item"], Stock.holder_user_id.is_(None)))
                   reserve_row = db.get(Reservation, rid)
                   assert stock_row and stock_row.qty == 8
-                  assert reserve_row and reserve_row.status == "active"
+                  assert reserve_row and reserve_row.status == "active" and reserve_row.unit_cost == 5
                   assert abs(sum(x.qty for x in db.scalars(server.select(ReservationIssue).where(ReservationIssue.reservation_id == rid))) - 2) < 0.001
+                  assert all(x.unit_cost == 5 for x in db.scalars(server.select(ReservationIssue).where(ReservationIssue.reservation_id == rid)))
               issued = client.post(f"/warehouse/reservations/{rid}/issue",headers=headers("e2"),json={"qty":2})
               assert issued.status_code == 200, issued.text
               assert issued.json()["status"] == "consumed" and issued.json()["remaining_qty"] == 0
