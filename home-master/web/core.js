@@ -275,7 +275,7 @@ function route(name, fn, roles) { ROUTES[name] = {fn, roles: roles || null}; }
 // Меню: [маршрут, ключ перевода, роли]. Чтобы добавить раздел — допишите строку и вызовите route(...).
 const NAV = [
   ['orders', 'orders', [1, 2, 3, 4, 5, 6, 7]],
-  ['new', 'new_order', [1, 2, 3, 4, 5, 7]],
+  ['new', 'new_order', [1, 2, 3, 4, 5, 6, 7]],
   ['map', 'map', [1, 2, 3, 7]],
   ['chat', 'chat', [1, 2, 3, 6, 7]],
   ['warehouse', 'warehouse', [1, 2, 3, 4, 5, 6, 7]],
