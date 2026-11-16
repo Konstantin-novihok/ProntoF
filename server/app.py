@@ -613,12 +613,10 @@ def translate_segment(text: str, source: str, target: str) -> str:
         return text
     try:
         import argostranslate.translate as argos
-        installed = {lang.code:lang for lang in argos.get_installed_languages()}
-        src, dst = installed.get(source), installed.get(target)
-        if not src or not dst:
-            return ""
-        pair = next((x for x in src.translations_from if x.to_lang.code == target), None)
-        return pair.translate(text) if pair else ""
+        # Argos can compose a route through an intermediate language (usually English).
+        # This allows a compact set of bidirectional English models to cover many pairs.
+        translation = argos.get_translation_from_codes(source, target)
+        return translation.translate(text) if translation is not None else ""
     except Exception:
         return ""
 
@@ -655,9 +653,8 @@ def process_job(job_id: str):
         if not translation_available:
             try:
                 import argostranslate.translate as argos
-                installed = {lang.code:lang for lang in argos.get_installed_languages()}
-                src_lang, dst_lang = installed.get(detected), installed.get(target_language)
-                translation_available = bool(src_lang and dst_lang and any(x.to_lang.code == target_language for x in src_lang.translations_from))
+                route = argos.get_translation_from_codes(detected, target_language)
+                translation_available = route is not None
             except Exception:
                 translation_available = False
         for index, row in enumerate(rows):
