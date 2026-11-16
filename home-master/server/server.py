@@ -592,7 +592,7 @@ async def upload_my_document(file: UploadFile = File(...), user: User = Depends(
     mime = next((m for m, (magic, _e) in DOC_TYPES.items() if data.startswith(magic)), None)
     if not mime:
         raise HTTPException(400, "Only JPEG or PDF")
-    slug = re.sub(r"[^a-z0-9_-]+", "_", (user.username or "user").lower()).strip("_")[:40] or "user"
+    slug = re.sub(r"[^a-z0-9_-]+", "_", (user.username or "user").lower()).strip("_")[:20] or "user"
     user_root = os.path.join(DATA_DIR, "users", f"{user.id}_{slug}")
     for part in ("profile", "documents", "orders"):
         os.makedirs(os.path.join(user_root, part), exist_ok=True)
