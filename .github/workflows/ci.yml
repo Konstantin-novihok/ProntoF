@@ -158,5 +158,7 @@ jobs:
           test ! -e web/app.js
           grep -q 'INTERNAL_ONLY=1' server/Dockerfile
           grep -q 'PRONTOF_API_URL: http://prontof-worker:8000' docker-compose.yml
+          grep -q 'ORDER_DATA_DIR: /shared' docker-compose.yml
+          grep -q '\${ORDER_SHARED_DATA:-./data/shared}:/shared' docker-compose.yml
           grep -q '/internal/jobs/{job_id}/retranslate' server/app.py
           grep -q '/internal/orders/{order_id}/videos/import' server/app.py
