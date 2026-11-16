@@ -454,7 +454,7 @@ route('users', async () => {
       const opts = [{label: t('change_role'), value: 'role'}, {label: t('change_department'), value: 'dep'}, {label: t('work_profile'), value: 'prof'},
         {label: t('toggle_active'), value: 'act'}, {label: t('view_private'), value: 'priv'}, {label: t('bonus_fine'), value: 'adj'}];
       if (me.role === 1) opts.push({label: 'Сбросить пароль', value: 'password'});
-      if (me.role === 1 && [2, 3, 5, 6].includes(u.role)) opts.push({label: t('trusted_permissions'), value: 'rights'});
+      if (me.role === 1 && [2, 3, 6].includes(u.role)) opts.push({label: t('trusted_permissions'), value: 'rights'});
       if (u.employment === 'external') opts.splice(3, 0, {label: t('verify'), value: 'ver'});
       const a = await pick(personName(u), opts);
       if (a === 'role') { const r = await rolePick(); if (r) { await api('PATCH', '/users/' + u.id, {role: r}); reload(); } }
