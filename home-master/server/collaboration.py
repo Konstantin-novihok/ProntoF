@@ -126,7 +126,7 @@ def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:S
 @router.delete("/orders/{oid}/participants/{uid}")
 def remove_participant(oid:int,uid:int,user:User=Depends(current_user),db:Session=Depends(get_db)):
  o=get_order(db,user,oid)
- if user.role not in (OWNER, 2) and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
+ if user.role != OWNER and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
  p=participant(db,oid,uid)
  if not p:raise HTTPException(404,"Активное назначение не найдено")
  p.active=False;p.ended_at=now()
