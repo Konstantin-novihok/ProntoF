@@ -219,3 +219,35 @@ def render_translated_video(job_id: str):
                 db.commit()
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def recover_interrupted_renders():
+    """Mark jobs interrupted by a worker restart as retryable failures."""
+    import app as worker
+    with worker.SessionLocal() as db:
+        rows = db.query(worker.RenderedOutput).filter(
+            worker.RenderedOutput.status.in_(("queued", "running"))).all()
+        for row in rows:
+            row.status = "failed"
+            row.error = "Worker перезапустился во время сборки. Нажмите «Создать видео» повторно."
+            row.file_path = ""
+            row.size_bytes = 0
+        db.commit()
+
+
+def cleanup_expired_rendered_outputs():
+    """Remove temporary MP4 files after 24h if they were not downloaded."""
+    import app as worker
+    now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    with worker.SessionLocal() as db:
+        rows = db.query(worker.RenderedOutput).filter(
+            worker.RenderedOutput.status == "ready",
+            worker.RenderedOutput.expires_at.is_not(None),
+            worker.RenderedOutput.expires_at <= now).all()
+        for row in rows:
+            if row.file_path:
+                Path(row.file_path).unlink(missing_ok=True)
+            row.status = "expired"
+            row.file_path = ""
+            row.size_bytes = 0
+        db.commit()
