@@ -578,7 +578,7 @@ def internal_video_source(video_id: str, request: Request, db: Session = Depends
     if not video:
         raise HTTPException(404, "Видео не найдено")
     path = (VIDEO_DIR / video.stored_name).resolve()
-    if path.parent != VIDEO_DIR.resolve() or not path.is_file():
+    if os.path.commonpath([VIDEO_DIR.resolve(), path]) != str(VIDEO_DIR.resolve()) or not path.is_file():
         raise HTTPException(404, "Файл видео отсутствует")
     import mimetypes
     mime = mimetypes.guess_type(video.filename)[0] or "application/octet-stream"
