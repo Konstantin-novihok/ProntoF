@@ -176,3 +176,8 @@ def edit_profile(uid: int, b: ProfileIn, user: User = Depends(current_user), db:
     log(db, user, "edit_profile", "user", t.id, ", ".join(data.keys()))
     db.commit()
     return staff_out(db, t, True)
+
+
+# Совместные исполнители, отчёты и резервы склада.
+from collaboration import router as collaboration_router
+router.include_router(collaboration_router)
