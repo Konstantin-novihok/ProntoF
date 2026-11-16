@@ -107,7 +107,7 @@ def item_out(db: Session, it: Item, viewer: User):
     except Exception:
         reserved = 0.0
     available = max(0.0, in_wh - reserved)
-    return dict(id=it.id, sku=it.sku, name=it.name, kind=it.kind, unit=it.unit, unit_cost=it.unit_cost, min_qty=it.min_qty,
+    return dict(id=it.id, sku=it.sku, name=it.name, kind=it.kind, unit=it.unit, unit_cost=it.unit_cost if viewer.role in MANAGERS else None, min_qty=it.min_qty,
                 description=it.description, manufacturer=it.manufacturer, package_volume=it.package_volume, package_unit=it.package_unit, active=it.active, in_warehouse=in_wh, with_staff=with_staff,
                 total=in_wh + with_staff, reserved=reserved, available=available, mine=qty_of(db, it.id, viewer.id),
                 low=bool(it.min_qty and available < it.min_qty), thumb=thumb if viewer.role in STAFF_ROLES else None)
