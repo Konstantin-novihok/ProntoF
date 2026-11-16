@@ -118,7 +118,7 @@ jobs:
               upload = client.post(f"/orders/{oid}/reports/me/files",headers=headers("e2"),files={"file":("evidence.txt",b"report evidence","text/plain")})
               assert upload.status_code == 200, upload.text
               report = client.put(f"/orders/{oid}/reports/me",headers=headers("e2"),json={
-                  "work_done":"Replaced filter","comments":"Completed","materials":[{"name":"Filter","qty":2,"unit":"pcs","unit_cost":5}],
+                  "work_done":"Replaced filter","comments":"Completed","materials":[{"name":"CI Filter","qty":2,"unit":"pcs","unit_cost":5,"reservation_id":rid}],
                   "labor_hours":1.5,"other_cost":3,"submit":True})
               assert report.status_code == 200, report.text
               assert report.json()["files"]
@@ -126,14 +126,51 @@ jobs:
               assert client.get(f"/files/{file_id}",headers=headers("e2")).status_code == 200
               assert client.get(f"/files/{file_id}",headers=headers("e1")).status_code == 403
 
+              # The report issues the reserved quantity from central stock and creates one material expense.
+              with server.SessionLocal() as db:
+                  from collaboration import Reservation, ReservationIssue
+                  stock_row = db.scalar(server.select(Stock).where(Stock.item_id == ids["item"], Stock.holder_user_id.is_(None)))
+                  reserve_row = db.get(Reservation, rid)
+                  assert stock_row and stock_row.qty == 8
+                  assert reserve_row and reserve_row.status == "active"
+                  assert abs(sum(x.qty for x in db.scalars(server.select(ReservationIssue).where(ReservationIssue.reservation_id == rid))) - 2) < 0.001
+              issued = client.post(f"/warehouse/reservations/{rid}/issue",headers=headers("e2"),json={"qty":2})
+              assert issued.status_code == 200, issued.text
+              assert issued.json()["status"] == "consumed" and issued.json()["remaining_qty"] == 0
+              with server.SessionLocal() as db:
+                  stock_row = db.scalar(server.select(Stock).where(Stock.item_id == ids["item"], Stock.holder_user_id.is_(None)))
+                  reserve_row = db.get(Reservation, rid)
+                  assert stock_row and stock_row.qty == 6
+                  assert reserve_row and reserve_row.status == "consumed"
+              public_stock = client.get("/warehouse/items",headers=headers("customer")).json()
+              ci_item = next(x for x in public_stock if x["id"] == ids["item"])
+              assert ci_item["reserved"] == 0 and ci_item["available"] == 6
+
               priced = client.post(f"/orders/{oid}/finance",headers=headers("owner"),json={"price":100})
               assert priced.status_code == 200, priced.text
               done = client.post(f"/orders/{oid}/status",headers=headers("owner"),json={"status":"done"})
               assert done.status_code == 200, done.text
               settled = client.post(f"/orders/{oid}/settle",headers=headers("owner"),json={})
               assert settled.status_code == 200, settled.text
-              assert abs(settled.json()["cost_price"] - 43) < 0.01, settled.json()
+              assert abs(settled.json()["cost_price"] - 53) < 0.01, settled.json()
               print("Collaboration, private report files, warehouse reservation and multi-executor costing passed.")
+          PY
+      - name: Import video worker and verify Piper render pipeline
+        run: |
+          python -m pip install -r server/requirements.txt
+          mkdir -p "$RUNNER_TEMP/prontof-worker-smoke"
+          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
+          import app
+          paths = set(app.app.openapi()["paths"])
+          assert "/internal/jobs/{job_id}/render" in paths
+          assert "/internal/jobs/{job_id}/render/preview" in paths
+          assert "/internal/jobs/{job_id}/render/download" in paths
+          assert "/internal/jobs/{job_id}/render/ack" in paths
+          from rendering import voice_for_language
+          assert voice_for_language("uk") == "uk_UA-ukrainian_tts-medium"
+          assert voice_for_language("ru")
+          assert voice_for_language("bg") is None  # Piper voice is not published for this language
+          print("Worker render routes and Piper voice catalogue loaded.")
           PY
       - name: Check Home Master browser JavaScript
         run: |
