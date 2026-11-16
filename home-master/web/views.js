@@ -162,7 +162,7 @@ route('order', async (id) => {
     const hours = parseFloat(v.hours.replace(',', '.')), price = parseFloat(v.price.replace(',', '.'));
     if (isNaN(hours) || isNaN(price)) throw new Error('number?');
     await post('estimate', {hours, price, text: v.text}); });
-  if ([1, 2, 7].includes(role)) act('assign_executor', async () => {
+  if (role === 1 || capabilities.includes('order_assign')) act('assign_executor', async () => {
     const users = (await api('GET', '/users?role=3')).filter((u) => u.is_active && u.verification === 'verified' && (isAdmin() || u.department_id === o.department_id));
     if (!users.length) throw new Error(t('no_executors'));
     const uid = await pick(t('assign_executor'), users.map((u) => ({label: personName(u) + (u.company_name ? ' · ' + u.company_name : ''), value: u.id}))); if (uid) await post('assign', {executor_id: uid}); });
