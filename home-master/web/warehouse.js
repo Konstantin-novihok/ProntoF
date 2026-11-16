@@ -60,8 +60,10 @@ route('warehouse', async (tab) => {
   if (tab === 'reservations') {
     const [rows, caps] = await Promise.all([api('GET','/warehouse/reservations'),api('GET','/me/capabilities').catch(()=>({capabilities:[]}))]);
     const privileged = roleIn(1) || (caps.capabilities || []).includes('reservation_payment_confirm');
-    const list = rows.map((r) => [r.item_name, h('a',{href:'#/order/'+r.order_id},'#'+r.order_id), `${num(r.qty)}`, r.paid ? t('reservation_paid') : (r.expires_at ? fmtDate(r.expires_at) : '—'), r.reserved_by || '',
+    const canIssue = roleIn(1, 2, 3) || (caps.capabilities || []).includes('warehouse_reservation_issue');
+    const list = rows.map((r) => [r.item_name, h('a',{href:'#/order/'+r.order_id},'#'+r.order_id), `${num(r.qty)} · ${t('reservation_remaining_qty')}: ${num(r.remaining_qty)}`, r.paid ? t('reservation_paid') : (r.expires_at ? fmtDate(r.expires_at) : '—'), r.reserved_by || '',
       h('div',{class:'row'},
+        r.remaining_qty > 0 && canIssue ? h('button',{class:'ghost small',onclick:guard(async()=>{const v=await formModal(t('reservation_issue'),[{key:'qty',label:'qty',type:'number',value:r.remaining_qty}]);if(!v)return;const qty=parseFloat(v.qty);if(!(qty>0&&qty<=r.remaining_qty))throw new Error(t('reservation_issue'));await api('POST',`/warehouse/reservations/${r.id}/issue`,{qty});render();})},t('reservation_issue')) : null,
         !r.paid && privileged ? h('button',{class:'ghost small',onclick:guard(async()=>{await api('POST',`/warehouse/reservations/${r.id}/confirm-payment`,{});render();})},t('confirm_payment')) : null,
         roleIn(1) ? h('button',{class:'ghost small',onclick:guard(async()=>{
           const utcDate = r.expires_at ? new Date(r.expires_at.endsWith('Z') ? r.expires_at : r.expires_at + 'Z') : null;
