@@ -78,6 +78,17 @@ def media_path(media: "Media") -> str:
     return os.path.join(MEDIA_DIR, filename)
 
 
+def user_doc_path(doc: "UserDoc") -> str:
+    filename = doc.filename or ""
+    if filename.startswith("users/"):
+        path = os.path.abspath(os.path.join(DATA_DIR, filename))
+        root = os.path.abspath(os.path.join(DATA_DIR, "users"))
+        if os.path.commonpath([root, path]) != root:
+            raise HTTPException(400, "Некорректный путь документа")
+        return path
+    return os.path.join(DOCS_DIR, filename)
+
+
 def enc(value: str) -> str:
     return _FERNET.encrypt(value.encode()).decode() if value else ""
 
@@ -580,10 +591,16 @@ async def upload_my_document(file: UploadFile = File(...), user: User = Depends(
     mime = next((m for m, (magic, _e) in DOC_TYPES.items() if data.startswith(magic)), None)
     if not mime:
         raise HTTPException(400, "Only JPEG or PDF")
+    slug = re.sub(r"[^a-z0-9_-]+", "_", (user.username or "user").lower()).strip("_")[:40] or "user"
+    user_root = os.path.join(DATA_DIR, "users", f"{user.id}_{slug}")
+    for part in ("profile", "documents", "orders"):
+        os.makedirs(os.path.join(user_root, part), exist_ok=True)
     name = uuid.uuid4().hex + DOC_TYPES[mime][1]
-    with open(os.path.join(DOCS_DIR, name), "wb") as f:
+    folder = os.path.join(user_root, "documents")
+    with open(os.path.join(folder, name), "wb") as f:
         f.write(data)
-    d = UserDoc(user_id=user.id, filename=name, original=(file.filename or name)[:200], mime=mime)
+    stored_name = os.path.relpath(os.path.join(folder, name), DATA_DIR).replace(os.sep, "/")
+    d = UserDoc(user_id=user.id, filename=stored_name, original=(file.filename or name)[:200], mime=mime)
     db.add(d)
     db.flush()
     log(db, user, "upload_document", "user", user.id, f"{mime} {len(data)} bytes")
@@ -599,7 +616,7 @@ def get_document(did: int, user: User = Depends(current_user), db: Session = Dep
     if user.role in ADMINS and d.user_id != user.id:
         log(db, user, "view_document", "user", d.user_id, f"doc={d.id}")
         db.commit()
-    return FileResponse(os.path.join(DOCS_DIR, d.filename), media_type=d.mime, filename=d.original)
+    return FileResponse(user_doc_path(d), media_type=d.mime, filename=d.original)
 
 
 @app.get("/users/{uid}/private")
