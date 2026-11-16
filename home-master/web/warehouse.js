@@ -53,8 +53,22 @@ async function itemForm(item) {
 
 route('warehouse', async (tab) => {
   tab = tab || 'items';
-  const tabs = h('div', {class: 'tabs'}, [['items', 'wh_items'], ['mine', 'wh_mine'], ['moves', 'wh_moves']].map(([k, key]) => h('a', {href: '#/warehouse/' + (k === 'items' ? '' : k), class: tab === k ? 'on' : ''}, t(key))));
+  const tabs = h('div', {class: 'tabs'}, [['items', 'wh_items'], ['mine', 'wh_mine'], ['moves', 'wh_moves'], ['reservations', 'warehouse_reservations']].map(([k, key]) => h('a', {href: '#/warehouse/' + (k === 'items' ? '' : k), class: tab === k ? 'on' : ''}, t(key))));
   const head = (extra) => pageHead(t('warehouse'), extra, isManager() && tab === 'items' ? h('button', {onclick: guard(async () => { if (await itemForm(null)) render(); })}, '+ ' + t('add_item')) : null);
+  if (tab === 'reservations') {
+    const [rows, caps] = await Promise.all([api('GET','/warehouse/reservations'),api('GET','/me/capabilities').catch(()=>({capabilities:[]}))]);
+    const privileged = roleIn(1) || (caps.capabilities || []).includes('reservation_payment_confirm');
+    const body = h('div', {});
+    const draw = () => body.replaceChildren(rows.length ? ...[] : h('p',{class:'muted'},t('no_data')));
+    const list = rows.map((r) => [r.item_name, h('a',{href:'#/order/'+r.order_id},'#'+r.order_id), `${num(r.qty)}`, r.paid ? t('reservation_paid') : (r.expires_at ? fmtDate(r.expires_at) : '—'), r.reserved_by || '',
+      !r.paid && privileged ? h('button',{class:'ghost small',onclick:guard(async()=>{await api('POST',`/warehouse/reservations/${r.id}/confirm-payment`,{});render();})},t('confirm_payment')) : '']);
+    return h('div',{},head(roleIn(1) ? h('button',{class:'ghost',onclick:guard(async()=>{
+      const v=await formModal(t('reservation_period'),[{key:'hours',label:'hours',type:'number',value:24}]);
+      if(!v)return;const hours=parseInt(v.hours,10);if(!(hours>=1&&hours<=720))throw new Error(t('reservation_period'));
+      await api('PUT','/warehouse/reservations/settings/period',{hours});toast(t('saved'));
+    })},t('reservation_period')) : null),tabs,
+      rows.length ? table([t('item'),t('order'),t('qty'),t('expires'),t('reserved_by'),t('action')],list,{numCols:[2]}) : h('p',{class:'muted'},t('no_data')));
+  }
   if (tab === 'mine') {
     const mine = await api('GET', '/warehouse/mine');
     return h('div', {}, head(), tabs, table([t('item'), t('kind'), t('qty'), ''], mine.map((x) => [h('a', {href: '#/item/' + x.item_id}, x.name), t('wh_' + x.kind), `${num(x.qty)} ${x.unit}`,
@@ -86,7 +100,7 @@ route('warehouse', async (tab) => {
     list.replaceChildren(...(rows.length ? rows.map((i) => h('div', {class: 'card click itemcard', onclick: () => { location.hash = '#/item/' + i.id; }},
       i.thumb ? h('img', {src: fileUrl(i.thumb), alt: ''}) : h('div', {class: 'thumbph'}, i.kind === 'equipment' ? '🔧' : '📦'),
       h('div', {class: 'grow'}, h('div', {class: 'row'}, h('b', {class: 'grow'}, i.name), h('span', {class: 'badge'}, t('wh_' + i.kind)), i.low ? h('span', {class: 'badge st-cancelled', style: 'background:var(--bad);color:#fff'}, t('low_stock')) : null),
-        h('div', {class: 'muted small'}, [i.sku, `${t('in_warehouse')}: ${num(i.in_warehouse)} ${i.unit}`, `${t('with_staff')}: ${num(i.with_staff)}`, i.mine ? `${t('on_me')}: ${num(i.mine)}` : null].filter(Boolean).join(' · '))))) : [h('p', {class: 'muted'}, t('no_data'))]));
+        h('div', {class: 'muted small'}, [i.sku, `${t('in_warehouse')}: ${num(i.in_warehouse)} ${i.unit}`, `${t('reserved')}: ${num(i.reserved || 0)} ${i.unit}`, `${t('available')}: ${num(i.available ?? i.in_warehouse)} ${i.unit}`, `${t('with_staff')}: ${num(i.with_staff)}`, i.mine ? `${t('on_me')}: ${num(i.mine)}` : null].filter(Boolean).join(' · '))))) : [h('p', {class: 'muted'}, t('no_data'))]));
   };
   q.oninput = draw; draw();
   return h('div', {}, head(q), tabs, list);
@@ -115,7 +129,7 @@ route('item', async (id) => {
         h('button', {class: 'ghost small', onclick: guard(() => saveUrl(url, f.original, f.mime))}, t('save_as'))));
   });
   return h('div', {}, h('div', {class: 'row'}, back('#/warehouse'), h('h1', {class: 'grow'}, it.name)),
-    h('div', {class: 'card'}, kvList([[t('sku'), it.sku || '-'], [t('kind'), t('wh_' + it.kind)], [t('in_warehouse'), `${num(it.in_warehouse)} ${it.unit}`], [t('with_staff'), `${num(it.with_staff)} ${it.unit}`],
+    h('div', {class: 'card'}, kvList([[t('sku'), it.sku || '-'], [t('kind'), t('wh_' + it.kind)], [t('in_warehouse'), `${num(it.in_warehouse)} ${it.unit}`], [t('reserved'), `${num(it.reserved || 0)} ${it.unit}`], [t('available'), `${num(it.available ?? it.in_warehouse)} ${it.unit}`], [t('with_staff'), `${num(it.with_staff)} ${it.unit}`],
       [t('on_me'), `${num(it.mine)} ${it.unit}`], isManager() ? [t('price'), money(it.unit_cost)] : null, [t('min_qty'), num(it.min_qty)], [t('description'), it.description || '-']])), acts,
     h('h2', {}, t('who_has_it')), table([t('employee'), t('company'), t('qty'), t('last_seen'), ''], d.holders.map((x) => [h('span', {}, h('span', {class: 'dot ' + (x.online ? 'on' : '')}), ' ', x.name), x.company || '', `${num(x.qty)} ${it.unit}`,
       x.last_seen ? fmtDate(x.last_seen) : '-', h('span', {class: 'row'}, x.lat != null ? h('button', {class: 'ghost small', onclick: () => holderMap(x)}, '📍 ' + t('where_is_it')) : null,
