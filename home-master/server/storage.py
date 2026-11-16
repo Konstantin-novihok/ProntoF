@@ -20,7 +20,7 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from server import (ADMINS, EXECUTOR, EXT_KIND, HEAD, MEDIA_DIR, DOCS_DIR, OBSERVER, OWNER, STAFF_ROLES, Base, Media, User,
-                    UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, need, now, save_stream,
+                    UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, media_path, need, now, save_stream,
                     DATA_DIR)
 
 router = APIRouter()
@@ -75,10 +75,32 @@ class ChatMessage(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now, index=True)
 
 
+def stored_file_path(f: StoredFile) -> str:
+    filename = f.filename or ""
+    if filename.startswith("orders/"):
+        path = os.path.abspath(os.path.join(DATA_DIR, filename))
+        root = os.path.abspath(os.path.join(DATA_DIR, "orders"))
+        if os.path.commonpath([root, path]) != root:
+            raise HTTPException(400, "Некорректный путь файла")
+        return path
+    return os.path.join(FILES_DIR, filename)
+
+
 async def store_upload(db: Session, file: UploadFile, user: User, source: str, ref_id: Optional[int] = None, description: str = "") -> StoredFile:
     ext, kind = check_upload(file.filename, file.content_type)
-    name, size = await save_stream(file, FILES_DIR, ext)
-    f = StoredFile(filename=name, original=(file.filename or name)[:200], mime=guess_mime(name), size=size, kind=kind,
+    if source == "report":
+        from collaboration import ExecutorReport
+        report = db.get(ExecutorReport, ref_id) if ref_id else None
+        if not report:
+            raise HTTPException(404, "Отчёт исполнителя не найден")
+        folder = os.path.join(DATA_DIR, "orders", str(report.order_id), "execution", str(report.executor_id), "reports")
+        os.makedirs(folder, exist_ok=True)
+        name, size = await save_stream(file, folder, ext)
+        filename = os.path.relpath(os.path.join(folder, name), DATA_DIR).replace(os.sep, "/")
+    else:
+        name, size = await save_stream(file, FILES_DIR, ext)
+        filename = name
+    f = StoredFile(filename=filename, original=(file.filename or name)[:200], mime=guess_mime(name), size=size, kind=kind,
                    uploader_id=user.id, source=source, ref_id=ref_id, description=description[:500])
     db.add(f)
     db.flush()
@@ -106,7 +128,7 @@ def download_file(fid: int, user: User = Depends(current_user), db: Session = De
         get_order(db, user, report.order_id)
         if user.role == EXECUTOR and (report.executor_id != user.id or not participant(db, report.order_id, user.id)):
             raise HTTPException(403, "Нет доступа к файлам чужого отчёта")
-    return file_response(os.path.join(FILES_DIR, f.filename), f.original, f.kind, f.mime)
+    return file_response(stored_file_path(f), f.original, f.kind, f.mime)
 
 
 # ───────────── чат ─────────────
@@ -211,7 +233,7 @@ def all_files(db: Session):
     users = {u.id: (u.full_name or u.username) for u in db.scalars(select(User))}
     rows = []
     for m in db.scalars(select(Media)):
-        rows.append(dict(key=f"m:{m.id}", name=m.original, size=_size(os.path.join(MEDIA_DIR, m.filename), m.size), mime=m.mime,
+        rows.append(dict(key=f"m:{m.id}", name=m.original, size=_size(media_path(m), m.size), mime=m.mime,
                          sender=users.get(m.user_id, "?"), sender_id=m.user_id, date=m.created_at.isoformat(), source="order", ref=m.order_id,
                          kind=EXT_KIND.get(os.path.splitext(m.filename)[1].lstrip("."), "doc")))
     for d in db.scalars(select(UserDoc)):
@@ -262,13 +284,13 @@ def _locate(db: Session, key: str):
     sid = int(sid)
     if kind == "m":
         o = db.get(Media, sid)
-        return (o, os.path.join(MEDIA_DIR, o.filename)) if o else (None, None)
+        return (o, media_path(o)) if o else (None, None)
     if kind == "d":
         o = db.get(UserDoc, sid)
         return (o, os.path.join(DOCS_DIR, o.filename)) if o else (None, None)
     if kind == "f":
         o = db.get(StoredFile, sid)
-        return (o, os.path.join(FILES_DIR, o.filename)) if o else (None, None)
+        return (o, stored_file_path(o)) if o else (None, None)
     raise HTTPException(400, "Bad key")
 
 
