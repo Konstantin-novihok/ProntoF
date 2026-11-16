@@ -123,11 +123,15 @@ class ItemIn(BaseModel):
 @router.get("/warehouse/items")
 def items(q: str = "", user: User = Depends(current_user), db: Session = Depends(get_db)):
     need(user, *STAFF_ROLES)
+    from collaboration import expire
+    expire(db)
     stmt = select(Item).where(Item.active).order_by(Item.name)
     if q.strip():
         like = f"%{q.strip()}%"
         stmt = stmt.where(Item.name.ilike(like) | Item.sku.ilike(like))
-    return [item_out(db, it, user) for it in db.scalars(stmt)]
+    result = [item_out(db, it, user) for it in db.scalars(stmt)]
+    db.commit()
+    return result
 
 
 @router.post("/warehouse/items")
