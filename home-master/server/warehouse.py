@@ -362,7 +362,7 @@ def issue_reservation(db: Session, reservation_id: int, qty: float, user: User, 
     return {"reservation_id": reservation.id, "order_id": order.id, "item_id": item.id,
             "issued_qty": reservation_issued_qty_safe(db, reservation.id),
             "remaining_qty": reservation_remaining(db, reservation),
-            "status": reservation.status, "unit_cost": unit_cost, "amount": r2(qty * unit_cost)}
+            "status": reservation.status}
 
 
 def reservation_issued_qty_safe(db: Session, reservation_id: int) -> float:
