@@ -865,6 +865,10 @@ def create_order(b: OrderIn, request: Request, user: User = Depends(current_user
     log(db, user, "create_order", "order", o.id, o.title)
     try:
         db.commit()
+        from storage import sync_user_order_index
+        sync_user_order_index(db, user.id, o, "created", True)
+        if o.client_id and o.client_id != user.id:
+            sync_user_order_index(db, o.client_id, o, "customer_order", True)
     except IntegrityError:
         # Two concurrent retries can both miss the initial receipt lookup.
         # The unique key is the final arbiter; rollback the losing transaction,
@@ -949,6 +953,9 @@ def assign(oid: int, b: AssignIn, user: User = Depends(current_user), db: Sessio
         if o.status == "new":
             o.status = "assigned"
     db.commit()
+    from storage import sync_user_order_index
+    if b.executor_id:
+        sync_user_order_index(db, b.executor_id, o, "assigned", True)
     return order_out(db, o, user)
 
 
@@ -966,6 +973,8 @@ def accept(oid: int, user: User = Depends(current_user), db: Session = Depends(g
     o.executor_id, o.status = user.id, "accepted"
     log(db, user, "accept_order", "order", o.id)
     db.commit()
+    from storage import sync_user_order_index
+    sync_user_order_index(db, user.id, o, "self_claimed", True)
     return order_out(db, o, user)
 
 
