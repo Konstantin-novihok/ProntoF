@@ -724,15 +724,26 @@ def internal_job_detail(job_id: str, request: Request, db: Session = Depends(db_
     if not job:
         raise HTTPException(404, "Задача не найдена")
     video = db.get(Video, job.video_id)
+    rendered = db.get(RenderedOutput, job.id)
+    if rendered and rendered.status == "ready":
+        expired = rendered.expires_at and rendered.expires_at <= dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        missing = not rendered.file_path or not Path(rendered.file_path).is_file()
+        if expired or missing:
+            if rendered.file_path:
+                Path(rendered.file_path).unlink(missing_ok=True)
+            rendered.status = "expired"
+            rendered.file_path = ""
+            rendered.size_bytes = 0
+            db.commit()
     return {"id": job.id, "order_id": job.order_id, "video_id": job.video_id,
             "filename": video.filename if video else "", "stored_name": video.stored_name if video else "", "status": job.status,
             "progress": job.progress, "message": job.message, "error": job.error,
             "source_language": job.source_language, "target_language": job.target_language,
             "transcript": job.transcript, "translated_text": job.translated_text,
-            "render_status": (db.get(RenderedOutput, job.id).status if db.get(RenderedOutput, job.id) else "not_started"),
-            "render_error": (db.get(RenderedOutput, job.id).error if db.get(RenderedOutput, job.id) else ""),
-            "render_filename": (db.get(RenderedOutput, job.id).file_name if db.get(RenderedOutput, job.id) else ""),
-            "render_size_bytes": (db.get(RenderedOutput, job.id).size_bytes if db.get(RenderedOutput, job.id) else 0)}
+            "render_status": rendered.status if rendered else "not_started",
+            "render_error": rendered.error if rendered else "",
+            "render_filename": rendered.file_name if rendered else "",
+            "render_size_bytes": rendered.size_bytes if rendered else 0}
 
 
 
