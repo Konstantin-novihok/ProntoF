@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pwdlib import PasswordHash
@@ -224,8 +224,25 @@ def set_video_visibility(video_id: str, data: VisibilityRequest, db: Session = D
     db.commit()
     return {"id":video.id,"visibility":video.visibility}
 
+@app.get("/api/videos/{video_id}/playback-token")
+def create_playback_token(video_id: str, db: Session = Depends(db_session), user: User = Depends(current_user)):
+    video = accessible_video(db, video_id, user)
+    now = dt.datetime.now(dt.timezone.utc)
+    token = jwt.encode({"scope":"video_playback","video_id":video.id,"user_id":user.id,"iat":now,"exp":now+dt.timedelta(minutes=5)}, SECRET_KEY, algorithm="HS256")
+    return {"token":token,"expires_in":300}
+
 @app.get("/api/videos/{video_id}/source")
-def video_source(video_id: str, db: Session = Depends(db_session), user: User = Depends(current_user)):
+def video_source(video_id: str, token: str = Query(min_length=20), db: Session = Depends(db_session)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        if payload.get("scope") != "video_playback" or payload.get("video_id") != video_id:
+            raise ValueError("wrong playback scope")
+        user_id = int(payload["user_id"])
+    except Exception:
+        raise HTTPException(401, "Ссылка на просмотр недействительна или истекла")
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(401, "Пользователь отключён")
     v = accessible_video(db, video_id, user)
     path = (VIDEO_DIR / v.stored_name).resolve()
     if path.parent != VIDEO_DIR.resolve() or not path.is_file():
