@@ -58,8 +58,6 @@ route('warehouse', async (tab) => {
   if (tab === 'reservations') {
     const [rows, caps] = await Promise.all([api('GET','/warehouse/reservations'),api('GET','/me/capabilities').catch(()=>({capabilities:[]}))]);
     const privileged = roleIn(1) || (caps.capabilities || []).includes('reservation_payment_confirm');
-    const body = h('div', {});
-    const draw = () => body.replaceChildren(rows.length ? ...[] : h('p',{class:'muted'},t('no_data')));
     const list = rows.map((r) => [r.item_name, h('a',{href:'#/order/'+r.order_id},'#'+r.order_id), `${num(r.qty)}`, r.paid ? t('reservation_paid') : (r.expires_at ? fmtDate(r.expires_at) : '—'), r.reserved_by || '',
       !r.paid && privileged ? h('button',{class:'ghost small',onclick:guard(async()=>{await api('POST',`/warehouse/reservations/${r.id}/confirm-payment`,{});render();})},t('confirm_payment')) : '']);
     return h('div',{},head(roleIn(1) ? h('button',{class:'ghost',onclick:guard(async()=>{
