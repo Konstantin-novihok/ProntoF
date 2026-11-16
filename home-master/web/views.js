@@ -289,6 +289,7 @@ route('order', async (id) => {
     ...videoJobs.map((j) => h('div', {class:'card'},
       h('b', {}, j.filename || 'Видео'),
       h('div', {class:'muted small'}, `${j.status || '—'} · ${j.progress || 0}% · ${j.message || ''}`),
+      h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/source`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
       j.error ? h('p', {class:'toast err'}, j.error) : null,
       j.transcript ? h('details', {}, h('summary', {}, t('video_transcript')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.transcript)) : null,
       j.translated_text ? h('details', {}, h('summary', {}, t('video_translation')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.translated_text)) : null))) : null;
