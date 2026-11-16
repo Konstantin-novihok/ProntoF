@@ -921,10 +921,13 @@ class AssignIn(BaseModel):
 @app.post("/orders/{oid}/assign")
 def assign(oid: int, b: AssignIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Владелец: направление и/или исполнитель. Начальник: исполнитель из СВОЕГО направления."""
-    need(user, OWNER, ADMIN, HEAD)
+    from collaboration import capability
+    if user.role != OWNER and not capability(db, user, "order_assign"):
+        raise HTTPException(403, "Недостаточно прав")
     o = get_order(db, user, oid)
     if b.department_id:
-        need(user, *ADMINS)
+        if user.role != OWNER:
+            raise HTTPException(403, "Направление может менять только суперпользователь")
         if not db.get(Department, b.department_id):
             raise HTTPException(404, "Department not found")
         log(db, user, "assign_department", "order", o.id, f"{o.department_id}->{b.department_id}")
