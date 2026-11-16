@@ -391,6 +391,86 @@ class InternalUploadComplete(BaseModel):
     target_language: str = Field(min_length=2, max_length=8)
 
 
+@app.post("/internal/orders/{order_id}/uploads/{upload_id}")
+async def internal_upload_single(order_id: int, upload_id: str, request: Request,
+                                 filename: str = Query(..., min_length=1, max_length=255),
+                                 target_language: str = Query(..., min_length=2, max_length=8),
+                                 source_language: Optional[str] = Query(default=None),
+                                 db: Session = Depends(db_session)):
+    """Receive one complete video request and stream it straight to disk (constant RAM use)."""
+    require_internal(request)
+    if order_id < 1 or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", upload_id):
+        raise HTTPException(400, "Некорректный ID заказа или загрузки")
+    receipt = db.get(InternalUploadReceipt, upload_id)
+    if receipt:
+        if receipt.order_id != order_id:
+            raise HTTPException(409, "ID загрузки уже привязан к другому заказу")
+        job = db.get(Job, receipt.job_id)
+        if not job:
+            raise HTTPException(409, "Запись загрузки найдена, но задача отсутствует")
+        return {"job_id": job.id, "video_id": job.video_id, "order_id": order_id, "status": job.status,
+                "filename": db.get(Video, job.video_id).filename if db.get(Video, job.video_id) else filename}
+    if source_language and source_language not in LANGUAGES:
+        raise HTTPException(400, "Неподдерживаемый исходный язык")
+    if target_language not in LANGUAGES:
+        raise HTTPException(400, "Неподдерживаемый язык перевода")
+    safe_filename = clean_filename(filename)
+    suffix = Path(safe_filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".webm", ".3gp", ".mkv", ".avi", ".m4v", ".mpeg", ".mpg"}:
+        raise HTTPException(400, "Поддерживаются видеофайлы MP4, MOV, WEBM, 3GP, MKV, AVI, M4V, MPEG")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_UPLOAD_BYTES:
+                raise HTTPException(413, "Размер видео превышает установленный лимит загрузки")
+        except ValueError:
+            raise HTTPException(400, "Некорректный Content-Length")
+    video_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
+    stored_name = video_id + suffix[:12]
+    destination = VIDEO_DIR / stored_name
+    temp_path = UPLOAD_DIR / f"single_{order_id}_{upload_id}_{uuid.uuid4().hex}.tmp"
+    total = 0
+    committed = False
+    try:
+        with temp_path.open("wb") as output:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, "Размер видео превышает установленный лимит загрузки")
+                if shutil.disk_usage(VIDEO_DIR).free < len(chunk) + 64 * 1024 * 1024:
+                    raise HTTPException(507, "На диске недостаточно свободного места для загрузки видео")
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        if total <= 0:
+            raise HTTPException(400, "Пустой видеофайл")
+        owner = db.scalar(select(User).where(User.role == "owner").limit(1))
+        if not owner:
+            raise HTTPException(503, "Владелец сервиса не создан")
+        os.replace(temp_path, destination)
+        video = Video(id=video_id, owner_id=owner.id, filename=safe_filename, stored_name=stored_name,
+                      size_bytes=total, visibility="private")
+        job = Job(id=job_id, video_id=video_id, owner_id=owner.id, order_id=order_id,
+                  status="queued", progress=0, message="Видео заказа принято в очередь",
+                  source_language=source_language or "", target_language=target_language)
+        db.add(video)
+        db.add(job)
+        db.add(InternalUploadReceipt(upload_id=upload_id, order_id=order_id, job_id=job.id))
+        db.commit()
+        committed = True
+        return {"job_id": job.id, "video_id": video_id, "order_id": order_id, "status": job.status,
+                "filename": safe_filename, "size_bytes": total}
+    except BaseException:
+        if not committed:
+            db.rollback()
+            temp_path.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+        raise
+
+
 @app.put("/internal/orders/{order_id}/uploads/{upload_id}/chunks/{index}")
 async def internal_upload_chunk(order_id: int, upload_id: str, index: int, request: Request):
     require_internal(request)
