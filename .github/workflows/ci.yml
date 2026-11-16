@@ -94,7 +94,7 @@ jobs:
               assert client.get("/orders",headers=headers("e2")).status_code == 200
               assigned = client.post(f"/orders/{oid}/participants",headers=headers("owner"),json={"executor_id":ids["e2"]})
               assert assigned.status_code == 200, assigned.text
-              assert (Path("$RUNNER_TEMP") if False else Path(server.DATA_DIR) / "orders" / str(oid) / "history").is_dir()
+              assert (Path(server.DATA_DIR) / "orders" / str(oid) / "history").is_dir()
               user_index = Path(server.DATA_DIR) / "users" / f"{ids['e2']}_executor_two" / "orders" / f"{oid}.json"
               assert user_index.is_file(), str(user_index)
 
