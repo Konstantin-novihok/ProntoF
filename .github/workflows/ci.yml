@@ -37,6 +37,7 @@ jobs:
           assert "/orders/{oid}/video-processing" in paths
           assert "/orders/{oid}/video-processing/from-job/{job_id}" in paths
           assert "/orders/{oid}/video-processing/from-media/{mid}" in paths
+          assert "/orders/{oid}/video-processing/{job_id}/source" in paths
           assert "/storage/files" in paths
           assert "/orders/{oid}/participants" in paths
           assert "/orders/{oid}/participants/{uid}" in paths
@@ -152,3 +153,4 @@ jobs:
           grep -q 'INTERNAL_ONLY=1' server/Dockerfile
           grep -q 'PRONTOF_API_URL: http://prontof-worker:8000' docker-compose.yml
           grep -q '/internal/jobs/{job_id}/retranslate' server/app.py
+          grep -q '/internal/orders/{order_id}/videos/import' server/app.py
