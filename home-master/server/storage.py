@@ -94,7 +94,7 @@ def sync_user_order_index(db: Session, user_id: int, order: Order, event: str, a
     for part in ("profile", "documents", "orders"):
         os.makedirs(os.path.join(root, part), exist_ok=True)
     for part in ("photos", "videos", "files", "reports"):
-        os.makedirs(os.path.join(DATA_DIR, "orders", str(order.id), "execution", str(user.id), part), exist_ok=True)
+        os.makedirs(os.path.join(ORDER_DATA_DIR, "orders", str(order.id), "execution", str(user.id), part), exist_ok=True)
     path = os.path.join(root, "orders", f"{order.id}.json")
     data = {"user_id": user.id, "order_id": order.id, "title": order.title, "status": order.status,
             "created_at": order.created_at.isoformat() if order.created_at else None, "active": active, "history": []}
@@ -136,10 +136,10 @@ async def store_upload(db: Session, file: UploadFile, user: User, source: str, r
         report = db.get(ExecutorReport, ref_id) if ref_id else None
         if not report:
             raise HTTPException(404, "Отчёт исполнителя не найден")
-        folder = os.path.join(DATA_DIR, "orders", str(report.order_id), "execution", str(report.executor_id), "reports")
+        folder = os.path.join(ORDER_DATA_DIR, "orders", str(report.order_id), "execution", str(report.executor_id), "reports")
         os.makedirs(folder, exist_ok=True)
         name, size = await save_stream(file, folder, ext)
-        filename = os.path.relpath(os.path.join(folder, name), DATA_DIR).replace(os.sep, "/")
+        filename = os.path.relpath(os.path.join(folder, name), ORDER_DATA_DIR).replace(os.sep, "/")
     else:
         name, size = await save_stream(file, FILES_DIR, ext)
         filename = name
