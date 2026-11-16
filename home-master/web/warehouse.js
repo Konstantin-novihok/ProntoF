@@ -55,7 +55,7 @@ async function itemForm(item) {
 
 route('warehouse', async (tab) => {
   tab = tab || 'items';
-  const tabs = h('div', {class: 'tabs'}, [['items', 'wh_items'], ['mine', 'wh_mine'], ['moves', 'wh_moves'], ['reservations', 'warehouse_reservations']].map(([k, key]) => h('a', {href: '#/warehouse/' + (k === 'items' ? '' : k), class: tab === k ? 'on' : ''}, t(key))));
+  const tabs = roleIn(1, 2, 3, 6, 7) ? h('div', {class: 'tabs'}, [['items', 'wh_items'], ['mine', 'wh_mine'], ['moves', 'wh_moves'], ['reservations', 'warehouse_reservations']].map(([k, key]) => h('a', {href: '#/warehouse/' + (k === 'items' ? '' : k), class: tab === k ? 'on' : ''}, t(key)))) : null;
   const head = (extra) => pageHead(t('warehouse'), extra, isManager() && tab === 'items' ? h('button', {onclick: guard(async () => { if (await itemForm(null)) render(); })}, '+ ' + t('add_item')) : null);
   if (tab === 'reservations') {
     const [rows, caps] = await Promise.all([api('GET','/warehouse/reservations'),api('GET','/me/capabilities').catch(()=>({capabilities:[]}))]);
@@ -112,7 +112,7 @@ route('warehouse', async (tab) => {
   };
   q.oninput = draw; draw();
   return h('div', {}, head(q), tabs, list);
-}, [1, 2, 3, 6, 7]);
+}, [1, 2, 3, 4, 5, 6, 7]);
 
 route('item', async (id) => {
   const d = await api('GET', '/warehouse/items/' + id), it = d.item;
@@ -128,7 +128,7 @@ route('item', async (id) => {
     const fl = await chooseFiles('image/*,video/*,.pdf'); if (!fl.length) return;
     const v = await formModal(t('description'), [{key: 'description', label: 'description', type: 'textarea'}]); if (!v) return;
     await uploadFiles(`/warehouse/items/${id}/files`, fl, {description: v.description}); toast(t('saved')); reload(); })}, '📷 ' + t('add_photo_video')));
-  acts.append(h('button', {class: 'ghost', onclick: guard(async () => { await api('POST', '/chat', {kind: 'item', item_id: +id}); toast(t('shared_to_chat')); })}, '💬 ' + t('share_chat')));
+  if (roleIn(1, 2, 3, 6, 7)) acts.append(h('button', {class: 'ghost', onclick: guard(async () => { await api('POST', '/chat', {kind: 'item', item_id: +id}); toast(t('shared_to_chat')); })}, '💬 ' + t('share_chat')));
   const gallery = d.files.map((f) => {
     const url = fileUrl(f.id);
     return h('div', {class: 'fcard'}, f.mime.startsWith('image/') ? h('a', {href: url, target: '_blank', rel: 'noopener'}, h('img', {src: url, alt: f.original}))
@@ -139,9 +139,12 @@ route('item', async (id) => {
   return h('div', {}, h('div', {class: 'row'}, back('#/warehouse'), h('h1', {class: 'grow'}, it.name)),
     h('div', {class: 'card'}, kvList([[t('sku'), it.sku || '-'], [t('manufacturer'), it.manufacturer || '-'], [t('package_volume'), it.package_volume ? `${num(it.package_volume)} ${it.package_unit || ''}` : '-'], [t('kind'), t('wh_' + it.kind)], [t('in_warehouse'), `${num(it.in_warehouse)} ${it.unit}`], [t('reserved'), `${num(it.reserved || 0)} ${it.unit}`], [t('available'), `${num(it.available ?? it.in_warehouse)} ${it.unit}`], [t('with_staff'), `${num(it.with_staff)} ${it.unit}`],
       [t('on_me'), `${num(it.mine)} ${it.unit}`], isManager() ? [t('price'), money(it.unit_cost)] : null, [t('min_qty'), num(it.min_qty)], [t('description'), it.description || '-']])), acts,
-    h('h2', {}, t('who_has_it')), table([t('employee'), t('company'), t('qty'), t('last_seen'), ''], d.holders.map((x) => [h('span', {}, h('span', {class: 'dot ' + (x.online ? 'on' : '')}), ' ', x.name), x.company || '', `${num(x.qty)} ${it.unit}`,
+    roleIn(1, 2, 3, 6, 7) ? h('h2', {}, t('who_has_it')) : null,
+    roleIn(1, 2, 3, 6, 7) ? table([t('employee'), t('company'), t('qty'), t('last_seen'), ''], d.holders.map((x) => [h('span', {}, h('span', {class: 'dot ' + (x.online ? 'on' : '')}), ' ', x.name), x.company || '', `${num(x.qty)} ${it.unit}`,
       x.last_seen ? fmtDate(x.last_seen) : '-', h('span', {class: 'row'}, x.lat != null ? h('button', {class: 'ghost small', onclick: () => holderMap(x)}, '📍 ' + t('where_is_it')) : null,
-        x.phone ? h('a', {class: 'btnlink small', href: 'tel:' + x.phone}, '📞') : null, h('a', {class: 'btnlink small', href: '#/chat'}, '💬'))]), {numCols: [2]}),
-    h('h2', {}, t('media')), gallery.length ? h('div', {class: 'gallery'}, gallery) : h('p', {class: 'muted'}, t('no_data')),
-    h('h2', {}, t('wh_moves')), table([t('date'), t('kind'), t('qty'), t('from'), t('to'), t('order'), t('by')], d.moves.map((m) => [fmtDate(m.created_at), t('mv_' + m.kind), `${num(m.qty)} ${m.unit}`, m.from_name || '', m.to_name || '', m.order_id ? '#' + m.order_id : '', m.by || '']), {numCols: [2]}));
-}, [1, 2, 3, 6, 7]);
+        x.phone ? h('a', {class: 'btnlink small', href: 'tel:' + x.phone}, '📞') : null, h('a', {class: 'btnlink small', href: '#/chat'}, '💬'))]), {numCols: [2]}) : null,
+    roleIn(1, 2, 3, 6, 7) ? h('h2', {}, t('media')) : null,
+    roleIn(1, 2, 3, 6, 7) ? (gallery.length ? h('div', {class: 'gallery'}, gallery) : h('p', {class: 'muted'}, t('no_data'))) : null,
+    roleIn(1, 2, 3, 6, 7) ? h('h2', {}, t('wh_moves')) : null,
+    roleIn(1, 2, 3, 6, 7) ? table([t('date'), t('kind'), t('qty'), t('from'), t('to'), t('order'), t('by')], d.moves.map((m) => [fmtDate(m.created_at), t('mv_' + m.kind), `${num(m.qty)} ${m.unit}`, m.from_name || '', m.to_name || '', m.order_id ? '#' + m.order_id : '', m.by || '']), {numCols: [2]}) : null);
+}, [1, 2, 3, 4, 5, 6, 7]);
