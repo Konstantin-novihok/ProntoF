@@ -15,7 +15,7 @@ from typing import Optional
 
 import jwt
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pwdlib import PasswordHash
 from pydantic import BaseModel, Field
@@ -34,6 +34,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "0") == "1"
+INTERNAL_ONLY = os.getenv("INTERNAL_ONLY", "0") == "1"
 MAX_UPLOAD_GB = min(500, max(1, int(os.getenv("MAX_UPLOAD_GB", "500"))))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_GB * 1024**3
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
@@ -53,7 +54,14 @@ if len(OWNER_PASSWORD) < 8:
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {}, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 password_hash = PasswordHash.recommended()
-app = FastAPI(title="ProntoF", version="0.1.0", description="Самостоятельная видеотека и локальная обработка видео")
+app = FastAPI(title="ProntoF internal video worker", version="0.2.0", description="Внутренний сервис обработки видео для Home Master")
+
+@app.middleware("http")
+async def internal_only_guard(request: Request, call_next):
+    # Worker is never a standalone user application. Only Home Master may call /internal/*.
+    if INTERNAL_ONLY and request.url.path.startswith("/api/") and request.url.path != "/api/health":
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return await call_next(request)
 
 class Base(DeclarativeBase):
     pass
