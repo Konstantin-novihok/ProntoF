@@ -105,7 +105,7 @@ def get_participants(oid:int,user:User=Depends(current_user),db:Session=Depends(
 @router.post("/orders/{oid}/participants")
 def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
  o=get_order(db,user,oid)
- if user.role not in (OWNER, 2) and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
+ if user.role not in (OWNER, HEAD) and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
  ex=db.get(User,b.executor_id)
  if not ex or ex.role!=EXECUTOR or not ex.is_active or (ex.verification or "verified")!="verified":raise HTTPException(400,"Исполнитель не найден или не проверен")
  if participant(db,oid,ex.id):return p_out(participant(db,oid,ex.id),db)
@@ -134,6 +134,7 @@ def self_claim(oid:int,user:User=Depends(current_user),db:Session=Depends(get_db
  if (user.verification or "verified")!="verified":raise HTTPException(403,"Учётная запись не проверена")
  o=get_order(db,user,oid)
  if o.status in ("done","cancelled"):raise HTTPException(409,"Заказ закрыт")
+ if o.executor_id not in (None,user.id):raise HTTPException(409,"Заказ уже назначен другому исполнителю; обратитесь к руководителю")
  if participant(db,oid,user.id):return {"ok":True,"already_participant":True}
  p=OrderParticipant(order_id=oid,user_id=user.id,assigned_by=user.id,method="self_claim");db.add(p)
  if o.executor_id is None:o.executor_id=user.id
@@ -270,7 +271,9 @@ def create_order_as_executor(b:ExecutorOrderIn,user:User=Depends(current_user),d
  if b.lat is not None and not (-90<=b.lat<=90 and -180<=(b.lon or 0)<=180):raise HTTPException(400,"Некорректные координаты")
  cur=(b.currency or "UAH").strip().upper()
  if len(cur)!=3 or not cur.isascii() or not cur.isalpha():raise HTTPException(400,"Некорректная валюта")
- o=Order(title=b.title.strip(),description=b.description[:20000],address=b.address[:300],lat=b.lat,lon=b.lon,
+ title=b.title.strip()
+ if not title:raise HTTPException(400,"Укажите название заказа")
+ o=Order(title=title,description=b.description[:20000],address=b.address[:300],lat=b.lat,lon=b.lon,
          department_id=user.department_id,client_id=None,created_by=user.id,service_type=b.service_type[:80],currency=cur)
  db.add(o);db.flush()
  p=OrderParticipant(order_id=o.id,user_id=user.id,assigned_by=user.id,method="self_claim")
