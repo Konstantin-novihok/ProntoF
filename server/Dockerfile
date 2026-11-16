@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY server/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && apt-get purge -y build-essential git && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 COPY server/app.py ./app.py
 COPY server/rendering.py ./rendering.py
 
