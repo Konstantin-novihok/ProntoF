@@ -909,6 +909,10 @@ def order_detail(oid: int, user: User = Depends(current_user), db: Session = Dep
 def order_history(oid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     need(user, *STAFF_ROLES)
     get_order(db, user, oid)
+    if user.role == EXECUTOR:
+        from collaboration import capability, participant
+        if not participant(db, oid, user.id) and not capability(db, user, "order_assign"):
+            raise HTTPException(403, "История доступна участникам заказа и уполномоченным сотрудникам")
     rows = db.scalars(select(Audit).where(Audit.target_type == "order", Audit.target_id == oid).order_by(Audit.id))
     return [audit_out(db, a) for a in rows]
 
