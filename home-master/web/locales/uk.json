@@ -516,5 +516,6 @@
   "video_render_started": "Створення підсумкового відео додано до черги.",
   "cap_reservation_issue": "Видача зарезервованих матеріалів",
   "reservation_issue": "Видати зі складу",
-  "reservation_remaining_qty": "залишилося"
+  "reservation_remaining_qty": "залишилося",
+  "video_ai_voice_notice": "У відео використано синтезований голос ШІ. Під час публікації зазначайте, що озвучення створене штучним інтелектом."
 }
