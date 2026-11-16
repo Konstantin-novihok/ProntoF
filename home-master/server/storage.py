@@ -89,7 +89,7 @@ def sync_user_order_index(db: Session, user_id: int, order: Order, event: str, a
     user = db.get(User, user_id)
     if not user:
         return
-    slug = re.sub(r"[^a-z0-9_-]+", "_", (user.username or "user").lower()).strip("_")[:40] or "user"
+    slug = re.sub(r"[^a-z0-9_-]+", "_", (user.username or "user").lower()).strip("_")[:20] or "user"
     root = os.path.join(DATA_DIR, "users", f"{user.id}_{slug}")
     for part in ("profile", "documents", "orders"):
         os.makedirs(os.path.join(root, part), exist_ok=True)
