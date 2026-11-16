@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#172033">
+  <title>ProntoF — видеотека</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">P</span><div><strong>ProntoF</strong><small>Видеотека и обработка</small></div></div>
+      <button id="logout" class="button subtle hidden">Выйти</button>
+    </header>
+
+    <section id="auth" class="auth-layout">
+      <div class="intro">
+        <p class="eyebrow">НЕЗАВИСИМАЯ ПЛАТФОРМА</p>
+        <h1>Ваши видео.<br>Ваши языки.</h1>
+        <p>Локальное распознавание речи, перевод и субтитры на собственном сервере.</p>
+      </div>
+      <form id="auth-form" class="panel auth-panel">
+        <h2 id="auth-title">Вход</h2>
+        <label>Логин<input id="username" autocomplete="username" minlength="3" maxlength="64" required></label>
+        <label>Пароль<input id="password" type="password" autocomplete="current-password" minlength="8" required></label>
+        <label id="name-wrap" class="hidden">Имя<input id="full-name" maxlength="120"></label>
+        <button class="button primary" type="submit" id="auth-submit">Войти</button>
+        <button class="text-button" type="button" id="auth-switch">Создать аккаунт</button>
+        <p id="auth-error" class="error"></p>
+      </form>
+    </section>
+
+    <section id="app" class="hidden">
+      <div class="welcome">
+        <div><p class="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1>Моя видеотека</h1><p id="user-info" class="muted"></p></div>
+        <button id="refresh" class="button subtle">↻ Обновить</button>
+      </div>
+      <section class="panel upload-panel">
+        <div><h2>Добавить видео</h2><p class="muted">Загрузка частями. Можно выбрать большой файл; фактический лимит зависит от свободного места.</p></div>
+        <div class="upload-controls">
+          <input id="video-file" type="file" accept="video/*,audio/*">
+          <button id="upload" class="button primary">Загрузить</button>
+        </div>
+        <div class="progress-track"><div id="upload-progress"></div></div>
+        <p id="upload-status" class="muted"></p>
+      </section>
+
+      <section class="library-head"><h2>Видео</h2><span id="video-count" class="muted"></span></section>
+      <div id="videos" class="video-grid"></div>
+      <p id="empty" class="empty hidden">Пока нет видео. Загрузите первый файл.</p>
+
+      <section id="details" class="panel details hidden">
+        <div class="detail-head"><div><p class="eyebrow">ВИДЕО И ОБРАБОТКА</p><h2 id="detail-title"></h2></div><button id="close-details" class="button subtle">Закрыть</button></div>
+        <video id="player" controls playsinline></video>
+        <div class="process-row">
+          <label>Язык речи<select id="source-language"><option value="">Автоопределение</option></select></label>
+          <label>Язык перевода<select id="target-language"></select></label>
+          <button id="process" class="button primary">Распознать и перевести</button>
+        </div>
+        <div id="job-status" class="muted"></div>
+        <div class="editor-grid">
+          <label>Распознанный текст<textarea id="original-text" rows="12"></textarea></label>
+          <label>Перевод<textarea id="translated-text" rows="12"></textarea></label>
+        </div>
+        <div class="actions">
+          <button id="save-text" class="button primary">Сохранить текст</button>
+          <button id="download-original" class="button subtle">Скачать SRT оригинала</button>
+          <button id="download-translated" class="button subtle">Скачать SRT перевода</button>
+        </div>
+        <p id="edit-status" class="muted"></p>
+      </section>
+    </section>
+    <footer>ProntoF · тестовая версия · локальная обработка</footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
