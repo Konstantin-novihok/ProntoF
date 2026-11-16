@@ -9,6 +9,8 @@
 import datetime as dt
 import mimetypes
 import os
+import re
+import json
 from urllib.parse import quote
 from typing import Optional
 
@@ -73,6 +75,38 @@ class ChatMessage(Base):
     item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now, index=True)
+
+
+def sync_user_order_index(db: Session, user_id: int, order: Order, event: str, active: bool = True):
+    """Персональная ссылка на заказ; сами бинарные файлы остаются только в папке заказа."""
+    user = db.get(User, user_id)
+    if not user:
+        return
+    slug = re.sub(r"[^a-z0-9_-]+", "_", (user.username or "user").lower()).strip("_")[:40] or "user"
+    root = os.path.join(DATA_DIR, "users", f"{user.id}_{slug}")
+    for part in ("profile", "documents", "orders"):
+        os.makedirs(os.path.join(root, part), exist_ok=True)
+    path = os.path.join(root, "orders", f"{order.id}.json")
+    data = {"user_id": user.id, "order_id": order.id, "title": order.title, "status": order.status,
+            "created_at": order.created_at.isoformat() if order.created_at else None, "active": active, "history": []}
+    try:
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as source:
+                old = json.load(source)
+            if isinstance(old, dict):
+                data.update(old)
+                data.update({"title": order.title, "status": order.status, "active": active})
+        data.setdefault("history", []).append({"event": event, "at": now().isoformat()})
+        temp = path + ".tmp"
+        with open(temp, "w", encoding="utf-8") as target:
+            json.dump(data, target, ensure_ascii=False, indent=2)
+        os.replace(temp, path)
+    except (OSError, ValueError):
+        try:
+            if os.path.exists(path + ".tmp"):
+                os.remove(path + ".tmp")
+        except OSError:
+            pass
 
 
 def stored_file_path(f: StoredFile) -> str:
