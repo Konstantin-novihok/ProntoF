@@ -37,6 +37,7 @@ ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "0") == "1"
 INTERNAL_ONLY = os.getenv("INTERNAL_ONLY", "0") == "1"
 MAX_UPLOAD_GB = min(500, max(1, int(os.getenv("MAX_UPLOAD_GB", "500"))))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_GB * 1024**3
+UPLOAD_ACCOUNTING_LOCK = threading.Lock()
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 CPU_THREADS = max(1, min(4, int(os.getenv("CPU_THREADS", "2"))))
 TOKEN_DAYS = max(1, int(os.getenv("TOKEN_DAYS", "7")))
@@ -148,6 +149,38 @@ def clean_filename(name: str) -> str:
     name = Path(name.replace("\\", "/")).name
     name = re.sub(r"[^\w.() -]+", "_", name, flags=re.UNICODE).strip(" .")
     return (name or "video")[:240]
+
+def save_upload_chunk(folder: Path, index: int, body: bytes, free_space_message: str):
+    """Persist one chunk while keeping O(1) upload-size accounting for very large files."""
+    folder.mkdir(parents=True, exist_ok=True)
+    with UPLOAD_ACCOUNTING_LOCK:
+        part = folder / f"{index}.part"
+        temp = folder / f"{index}.tmp"
+        size_file = folder / ".upload_size"
+        previous_size = part.stat().st_size if part.is_file() else 0
+        try:
+            staged_size = int(size_file.read_text(encoding="ascii"))
+            if staged_size < previous_size:
+                raise ValueError("stale upload accounting")
+        except (OSError, ValueError):
+            staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
+        next_size = staged_size - previous_size + len(body)
+        if next_size > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
+        if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
+            raise HTTPException(507, free_space_message)
+        temp.write_bytes(body)
+        temp.replace(part)
+        size_tmp = folder / ".upload_size.tmp"
+        try:
+            size_tmp.write_text(str(next_size), encoding="ascii")
+            size_tmp.replace(size_file)
+        except OSError:
+            size_file.unlink(missing_ok=True)
+            size_tmp.unlink(missing_ok=True)
+            raise HTTPException(507, "Не удалось обновить состояние загрузки на диске")
+    return {"index": index, "bytes": len(body)}
+
 
 def format_srt_time(seconds: float) -> str:
     ms = max(0, round(seconds * 1000))
@@ -289,18 +322,8 @@ async def upload_chunk(upload_id: str, index: int, request: Request, user: User 
     if not body or len(body) > 32 * 1024 * 1024:
         raise HTTPException(413, "Размер части должен быть от 1 байта до 32 MiB")
     folder = UPLOAD_DIR / f"{user.id}_{upload_id}"
-    folder.mkdir(parents=True, exist_ok=True)
-    part = folder / f"{index}.part"
-    temp = folder / f"{index}.tmp"
-    previous_size = part.stat().st_size if part.is_file() else 0
-    staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
-    if staged_size - previous_size + len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
-    if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
-        raise HTTPException(507, "На диске недостаточно места для следующей части загрузки")
-    temp.write_bytes(body)
-    temp.replace(part)
-    return {"upload_id":upload_id,"index":index,"bytes":len(body)}
+    saved = save_upload_chunk(folder, index, body, "На диске недостаточно места для следующей части загрузки")
+    return {"upload_id": upload_id, **saved}
 
 class UploadComplete(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
@@ -313,6 +336,7 @@ def complete_upload(upload_id: str, data: UploadComplete, db: Session = Depends(
     folder = UPLOAD_DIR / f"{user.id}_{upload_id}"
     if not folder.is_dir():
         raise HTTPException(404, "Части загрузки не найдены")
+    (folder / ".upload_size").unlink(missing_ok=True)
     filename = clean_filename(data.filename)
     video_id = str(uuid.uuid4())
     stored_name = video_id + Path(filename).suffix.lower()[:12]
@@ -376,18 +400,8 @@ async def internal_upload_chunk(order_id: int, upload_id: str, index: int, reque
     if not body or len(body) > 32 * 1024 * 1024:
         raise HTTPException(413, "Размер части должен быть от 1 байта до 32 MiB")
     folder = UPLOAD_DIR / f"hm_{order_id}_{upload_id}"
-    folder.mkdir(parents=True, exist_ok=True)
-    part = folder / f"{index}.part"
-    temp = folder / f"{index}.tmp"
-    previous_size = part.stat().st_size if part.is_file() else 0
-    staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
-    if staged_size - previous_size + len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "Не удалось принять файл. Проверьте доступность хранилища и повторите попытку.")
-    if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
-        raise HTTPException(507, "На диске недостаточно места для следующей части")
-    temp.write_bytes(body)
-    temp.replace(part)
-    return {"order_id": order_id, "upload_id": upload_id, "index": index, "bytes": len(body)}
+    saved = save_upload_chunk(folder, index, body, "На диске недостаточно места для следующей части")
+    return {"order_id": order_id, "upload_id": upload_id, **saved}
 
 
 @app.post("/internal/orders/{order_id}/uploads/{upload_id}/complete")
@@ -411,6 +425,7 @@ def internal_complete_upload(order_id: int, upload_id: str, data: InternalUpload
     folder = UPLOAD_DIR / f"hm_{order_id}_{upload_id}"
     if not folder.is_dir():
         raise HTTPException(404, "Части видео не найдены")
+    (folder / ".upload_size").unlink(missing_ok=True)
     filename = clean_filename(data.filename)
     suffix = Path(filename).suffix.lower()
     if suffix not in {".mp4", ".mov", ".webm", ".3gp", ".mkv", ".avi", ".m4v", ".mpeg", ".mpg"}:
