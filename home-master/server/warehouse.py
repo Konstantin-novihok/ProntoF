@@ -167,6 +167,9 @@ def item_detail(iid: int, user: User = Depends(current_user), db: Session = Depe
     it = db.get(Item, iid)
     if not it:
         raise HTTPException(404)
+    from collaboration import expire
+    expire(db, iid)
+    db.commit()
     files = [file_out(f, db) for f in db.scalars(select(StoredFile).where(StoredFile.source == "warehouse", StoredFile.ref_id == iid).order_by(StoredFile.id))]
     moves = db.scalars(select(Move).where(Move.item_id == iid).order_by(Move.id.desc()).limit(30)).all()
     return dict(item=item_out(db, it, user), holders=holders_of(db, iid), files=files, moves=[move_out(db, m) for m in moves])
