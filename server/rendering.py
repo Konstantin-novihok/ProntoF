@@ -39,7 +39,8 @@ VOICE_BY_LANGUAGE = {
 }
 
 def voice_for_language(language: str) -> str | None:
-    return VOICE_BY_LANGUAGE.get((language or "").lower())
+    code = (language or "").strip().lower().replace("-", "_").split("_", 1)[0]
+    return VOICE_BY_LANGUAGE.get(code)
 
 
 def _run(command: list[str], timeout: int = 72 * 60 * 60) -> str:
