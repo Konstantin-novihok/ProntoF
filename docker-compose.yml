@@ -1,0 +1,27 @@
+services:
+  prontof:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: prontof:0.1.0
+    container_name: prontof-test
+    restart: unless-stopped
+    ports:
+      - "${PRONTOF_PORT:-30810}:8000"
+    environment:
+      DATA_DIR: /data
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD in .env}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-1}
+      MAX_UPLOAD_GB: ${MAX_UPLOAD_GB:-500}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      CPU_THREADS: ${CPU_THREADS:-2}
+      TZ: ${TZ:-Europe/Kyiv}
+    volumes:
+      - ${PRONTOF_DATA:-./data}:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
