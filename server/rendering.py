@@ -217,6 +217,8 @@ def _render_translated_video_locked(job_id: str):
         command = ["ffmpeg", "-y", "-i", str(source_path), "-i", str(voice_track),
                    "-map", "0:v:0", *audio_args, *video_args,
                    "-c:a", "aac", "-b:a", "160k", "-map_metadata", "0",
+                   "-metadata", "comment=Contains AI-generated synthetic speech (Piper)",
+                   "-metadata:s:a:0", "title=AI-generated translated speech mixed with original audio",
                    "-movflags", "+faststart", "-shortest", str(output_path)]
         _run(command)
 
