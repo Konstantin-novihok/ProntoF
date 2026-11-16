@@ -458,5 +458,17 @@
   "src_video": "Arquivo de vídeo",
   "rename": "Renomear",
   "rename_file": "Renomear arquivo",
-  "file_name": "Nome do arquivo"
+  "file_name": "Nome do arquivo",
+  "update_available": "A atualização {version} do Home Master está disponível",
+  "update_installed": "Versão instalada: {version}. A atualização foi enviada para o seu servidor.",
+  "update_benefit": "Isso tornará o aplicativo mais confortável de usar e nos permitirá trabalhar com mais rapidez e qualidade.",
+  "update_download_install": "Baixar e instalar",
+  "update_later": "Mais tarde",
+  "update_settings_title": "Atualização do aplicativo",
+  "update_settings_hint": "Verifique se há uma nova versão do Home Master e baixe o APK.",
+  "update_check": "Verificar atualizações",
+  "update_download": "Baixar atualização disponível",
+  "update_none": "Não há novas atualizações publicadas.",
+  "update_module_missing": "O módulo de atualização ainda não foi carregado.",
+  "update_check_error": "Não foi possível verificar as atualizações: {error}"
 }
