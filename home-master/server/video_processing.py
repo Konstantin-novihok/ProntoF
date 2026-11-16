@@ -303,6 +303,94 @@ async def video_original_source(oid:int,job_id:str,user:User=Depends(current_use
     return StreamingResponse(stream(),media_type=mime,headers={"Content-Disposition":f'inline; filename="{safe_name}"'})
 
 
+
+def _video_job_row(oid: int, job_id: str, user: User, db: Session):
+    _check_order(oid, user, db)
+    row = db.scalar(select(OrderVideoJob).where(
+        OrderVideoJob.order_id == oid, OrderVideoJob.remote_job_id == job_id))
+    if not row:
+        raise HTTPException(404, "Видео этой заявки не найдено")
+    return row
+
+
+@router.post("/orders/{oid}/video-processing/{job_id}/render", status_code=202)
+async def render_translated_video(oid: int, job_id: str,
+                                  user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _video_job_row(oid, job_id, user, db)
+    response = await _remote("POST", f"/internal/jobs/{job_id}/render")
+    log(db, user, "video_render_start", "order", oid, f"job={job_id}")
+    db.commit()
+    return response.json()
+
+
+@router.get("/orders/{oid}/video-processing/{job_id}/render")
+async def translated_video_status(oid: int, job_id: str,
+                                  user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _video_job_row(oid, job_id, user, db)
+    return (await _remote("GET", f"/internal/jobs/{job_id}/render")).json()
+
+
+async def _proxy_render_file(oid: int, job_id: str, user: User, db: Session,
+                             request: Request, mode: str):
+    _video_job_row(oid, job_id, user, db)
+    _ensure_config()
+    remote_path = f"/internal/jobs/{job_id}/render/{mode}"
+    client = httpx.AsyncClient(timeout=None)
+    headers = _headers()
+    if mode == "preview" and request.headers.get("range"):
+        headers["Range"] = request.headers["range"]
+    try:
+        remote = await client.send(client.build_request("GET", PRONTOF_API_URL + remote_path, headers=headers), stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        raise HTTPException(502, f"Не удалось получить готовое видео: {exc.__class__.__name__}")
+    if remote.status_code >= 400:
+        body = (await remote.aread()).decode("utf-8", "replace")
+        await remote.aclose()
+        await client.aclose()
+        try:
+            detail = json.loads(body).get("detail", body[:500])
+        except Exception:
+            detail = body[:500]
+        raise HTTPException(remote.status_code, detail)
+    forward_headers = {"Cache-Control": "private, no-store", "Accept-Ranges": "bytes"}
+    for key in ("content-length", "content-range", "content-disposition", "etag", "last-modified"):
+        if remote.headers.get(key):
+            forward_headers[key.title()] = remote.headers[key]
+    async def stream():
+        completed = False
+        try:
+            async for chunk in remote.aiter_bytes():
+                if chunk:
+                    yield chunk
+            completed = True
+        finally:
+            await remote.aclose()
+            await client.aclose()
+            # Acknowledge only after the entire response has been sent to the client.
+            # A disconnected/partial transfer leaves the temporary MP4 available for retry.
+            if mode == "download" and completed:
+                try:
+                    await _remote("POST", f"/internal/jobs/{job_id}/render/ack")
+                except Exception:
+                    pass
+    media_type = remote.headers.get("content-type", "video/mp4").split(";")[0]
+    return StreamingResponse(stream(), status_code=remote.status_code, media_type=media_type,
+                             headers=forward_headers)
+
+
+@router.get("/orders/{oid}/video-processing/{job_id}/render/preview")
+async def translated_video_preview(oid: int, job_id: str, request: Request,
+                                   user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return await _proxy_render_file(oid, job_id, user, db, request, "preview")
+
+
+@router.get("/orders/{oid}/video-processing/{job_id}/render/download")
+async def translated_video_download(oid: int, job_id: str, request: Request,
+                                    user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return await _proxy_render_file(oid, job_id, user, db, request, "download")
+
+
 @router.get("/orders/{oid}/video-processing")
 async def order_video_processing(oid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     _check_order(oid, user, db)
