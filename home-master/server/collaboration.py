@@ -83,7 +83,11 @@ class CapabilityIn(BaseModel): capabilities:list[str]=Field(default_factory=list
 
 @router.get("/me/capabilities")
 def my_capabilities(user:User=Depends(current_user),db:Session=Depends(get_db)):
- return {"capabilities":sorted(CAPS) if user.role==OWNER else (json.loads((db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id)).capabilities_json or "[]")) if db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id)) else [])}
+ if user.role==OWNER:return {"capabilities":sorted(CAPS)}
+ row=db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id))
+ try: values=json.loads(row.capabilities_json or "[]") if row else []
+ except Exception: values=[]
+ return {"capabilities":[x for x in values if x in CAPS]}
 @router.put("/trusted-users/{uid}/capabilities")
 def set_caps(uid:int,b:CapabilityIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
  need(user,OWNER); target=db.get(User,uid)
@@ -109,7 +113,7 @@ def get_participants(oid:int,user:User=Depends(current_user),db:Session=Depends(
 @router.post("/orders/{oid}/participants")
 def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
  o=get_order(db,user,oid)
- if user.role not in (OWNER, HEAD) and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
+ if user.role != OWNER and not capability(db,user,"order_assign"):raise HTTPException(403,"Недостаточно прав")
  ex=db.get(User,b.executor_id)
  if not ex or ex.role!=EXECUTOR or not ex.is_active or (ex.verification or "verified")!="verified":raise HTTPException(400,"Исполнитель не найден или не проверен")
  if participant(db,oid,ex.id):return p_out(participant(db,oid,ex.id),db)
@@ -173,7 +177,9 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
  if not participant(db,oid,user.id):raise HTTPException(403,"Вы не назначены на заказ")
  if o.settled_at:raise HTTPException(409,"Заказ рассчитан")
  for m in b.materials:
-  if not isinstance(m,dict) or not m.get("name") or float(m.get("qty",0))<=0:raise HTTPException(400,"Некорректный материал")
+  try: valid=isinstance(m,dict) and bool(str(m.get("name","")).strip()) and float(m.get("qty",0))>0
+  except (TypeError,ValueError): valid=False
+  if not valid:raise HTTPException(400,"Некорректный материал")
  r=db.scalar(select(ExecutorReport).where(ExecutorReport.order_id==oid,ExecutorReport.executor_id==user.id))
  if r is None:r=ExecutorReport(order_id=oid,executor_id=user.id);db.add(r)
  if r.status=="submitted":raise HTTPException(409,"Отправленный отчёт нельзя изменить")
