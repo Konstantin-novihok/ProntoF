@@ -263,8 +263,7 @@ route('order', async (id) => {
       h('div', {class:'small'}, `${t('hours')}: ${num(r.labor_hours)} · ${t('other_cost')}: ${money(r.other_cost)}`),
       r.materials && r.materials.length ? h('ul', {}, r.materials.map((m) => h('li', {}, `${m.name}: ${m.qty} ${m.unit || ''}`))) : null,
       r.files && r.files.length ? h('div', {class:'small'}, r.files.map((f) => h('div', {class:'row'},
-        h('a', {href:fileUrl(f.id),target:'_blank',rel:'noopener'}, f.original),
-        h('button',{class:'ghost small',onclick:guard(()=>saveUrl(fileUrl(f.id),f.original,f.mime))},t('save_as'))))) : null)),
+        h('a', {href:fileUrl(f.id),download:f.original}, f.original)))) : null)),
     role === 3 && participants.some((p) => p.user_id === S.me.id && p.active) && !reports.some((r) => r.executor_id === S.me.id && r.status === 'submitted')
       ? h('div', {}, h('button',{class:'ghost',onclick:guard(async()=>{
           const fl=await chooseFiles('image/*,video/*,.pdf');if(!fl.length)return;
