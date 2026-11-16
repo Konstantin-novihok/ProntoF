@@ -618,6 +618,34 @@ def internal_video_delete(video_id: str, request: Request, db: Session = Depends
     db.commit()
     return {"ok": True, "job_ids": job_ids}
 
+class InternalRetranslateIn(BaseModel):
+    target_language: str = Field(min_length=2, max_length=8)
+    source_language: Optional[str] = None
+
+@app.post("/internal/jobs/{job_id}/retranslate")
+def internal_retranslate(job_id: str, data: InternalRetranslateIn, request: Request,
+                         db: Session = Depends(db_session)):
+    require_internal(request)
+    original = db.get(Job, job_id)
+    if not original or original.order_id is None:
+        raise HTTPException(404, "Исходная задача заказа не найдена")
+    video = db.get(Video, original.video_id)
+    if not video:
+        raise HTTPException(404, "Оригинальный видеофайл не найден")
+    if data.target_language not in LANGUAGES:
+        raise HTTPException(400, "Неподдерживаемый язык перевода")
+    if data.source_language and data.source_language not in LANGUAGES:
+        raise HTTPException(400, "Неподдерживаемый исходный язык")
+    job = Job(id=str(uuid.uuid4()), video_id=video.id, owner_id=original.owner_id,
+              order_id=original.order_id, status="queued", progress=0,
+              message="Повторный перевод оригинала по запросу исполнителя",
+              source_language=data.source_language or "", target_language=data.target_language)
+    db.add(job)
+    db.commit()
+    return {"job_id":job.id,"video_id":video.id,"order_id":original.order_id,
+            "filename":video.filename,"status":job.status}
+
+
 @app.get("/internal/jobs/{job_id}")
 def internal_job_detail(job_id: str, request: Request, db: Session = Depends(db_session)):
     require_internal(request)
