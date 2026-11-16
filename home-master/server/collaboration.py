@@ -121,6 +121,8 @@ def add_participant(oid:int,b:ParticipantIn,user:User=Depends(current_user),db:S
  if o.executor_id is None:o.executor_id=ex.id
  if o.status=="new":o.status="assigned"
  db.flush();log(db,user,"assign_executor","order",oid,f"executor={ex.id}; participant={p.id}");db.commit()
+ from storage import sync_user_order_index
+ sync_user_order_index(db,ex.id,o,"assigned",True)
  return p_out(p,db)
 
 @router.delete("/orders/{oid}/participants/{uid}")
@@ -134,6 +136,8 @@ def remove_participant(oid:int,uid:int,user:User=Depends(current_user),db:Sessio
   nxt=db.scalar(select(OrderParticipant).where(OrderParticipant.order_id==oid,OrderParticipant.active.is_(True),OrderParticipant.user_id!=uid).order_by(OrderParticipant.id))
   o.executor_id=nxt.user_id if nxt else None
  log(db,user,"unassign_executor","order",oid,f"executor={uid}");db.commit()
+ from storage import sync_user_order_index
+ sync_user_order_index(db,uid,o,"unassigned",False)
  return {"ok":True}
 
 @router.post("/orders/{oid}/self-claim")
@@ -148,6 +152,8 @@ def self_claim(oid:int,user:User=Depends(current_user),db:Session=Depends(get_db
  if o.executor_id is None:o.executor_id=user.id
  if o.status=="new":o.status="accepted"
  log(db,user,"self_claim_order","order",oid,f"executor={user.id}");db.commit()
+ from storage import sync_user_order_index
+ sync_user_order_index(db,user.id,o,"self_claimed",True)
  return {"ok":True,"participant":p_out(p,db)}
 
 class ReportIn(BaseModel):
@@ -344,4 +350,6 @@ def create_order_as_executor(b:ExecutorOrderIn,user:User=Depends(current_user),d
  log(db,user,"create_order","order",o.id,"created by executor")
  log(db,user,"self_claim_order","order",o.id,f"executor={user.id}")
  db.commit()
+ from storage import sync_user_order_index
+ sync_user_order_index(db,user.id,o,"created_and_self_claimed",True)
  return core.order_out(db,o,user)
