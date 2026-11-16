@@ -513,8 +513,9 @@ def internal_complete_upload(order_id: int, upload_id: str, data: InternalUpload
     if suffix not in {".mp4", ".mov", ".webm", ".3gp", ".mkv", ".avi", ".m4v", ".mpeg", ".mpg"}:
         raise HTTPException(400, "Поддерживаются видеофайлы MP4, MOV, WEBM, 3GP, MKV, AVI, M4V, MPEG")
     video_id = str(uuid.uuid4())
-    stored_name = video_id + suffix[:12]
+    stored_name = f"orders/{order_id}/customer/original_video/{video_id}{suffix[:12]}"
     destination = VIDEO_DIR / stored_name
+    destination.parent.mkdir(parents=True, exist_ok=True)
     total = 0
     try:
         with destination.open("wb") as output:
