@@ -633,6 +633,45 @@ def internal_video_delete(video_id: str, request: Request, db: Session = Depends
     db.commit()
     return {"ok": True, "job_ids": job_ids}
 
+class InternalImportVideoIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    stored_name: str = Field(min_length=1, max_length=255)
+    target_language: str = Field(min_length=2, max_length=8)
+    source_language: Optional[str] = None
+
+@app.post("/internal/orders/{order_id}/videos/import")
+def internal_import_order_video(order_id:int,data:InternalImportVideoIn,request:Request,
+                                db:Session=Depends(db_session)):
+    require_internal(request)
+    if order_id<1 or data.target_language not in LANGUAGES:
+        raise HTTPException(400,"Некорректный заказ или язык перевода")
+    if data.source_language and data.source_language not in LANGUAGES:
+        raise HTTPException(400,"Некорректный исходный язык")
+    relative=Path(data.stored_name)
+    if relative.is_absolute() or ".." in relative.parts or relative.parts[:2] != ("orders",str(order_id)):
+        raise HTTPException(400,"Исходный файл должен находиться в папке этого заказа")
+    path=(ORDER_DATA_DIR/relative).resolve()
+    if os.path.commonpath([str(ORDER_DATA_DIR.resolve()),str(path)])!=str(ORDER_DATA_DIR.resolve()) or not path.is_file():
+        raise HTTPException(404,"Общий файл заказа не найден")
+    size=path.stat().st_size
+    if size<=0 or size>MAX_UPLOAD_BYTES:
+        raise HTTPException(413,"Размер исходного видео недопустим")
+    suffix=Path(clean_filename(data.filename)).suffix.lower()
+    if suffix not in {".mp4",".mov",".webm",".3gp",".mkv",".avi",".m4v",".mpeg",".mpg"}:
+        raise HTTPException(400,"Неподдерживаемый формат видео")
+    owner=db.scalar(select(User).where(User.role=="owner").limit(1))
+    if not owner:raise HTTPException(503,"Владелец worker не создан")
+    video_id=str(uuid.uuid4());job_id=str(uuid.uuid4())
+    video=Video(id=video_id,owner_id=owner.id,filename=clean_filename(data.filename),
+                stored_name=relative.as_posix(),size_bytes=size,visibility="private")
+    job=Job(id=job_id,video_id=video_id,owner_id=owner.id,order_id=order_id,status="queued",progress=0,
+            message="Видео заказа поставлено в очередь без копирования оригинала",
+            source_language=data.source_language or "",target_language=data.target_language)
+    db.add(video);db.add(job);db.commit()
+    return {"job_id":job.id,"video_id":video_id,"order_id":order_id,"filename":video.filename,
+            "size_bytes":size,"status":job.status}
+
+
 class InternalRetranslateIn(BaseModel):
     target_language: str = Field(min_length=2, max_length=8)
     source_language: Optional[str] = None
