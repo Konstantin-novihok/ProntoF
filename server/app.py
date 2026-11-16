@@ -33,7 +33,7 @@ DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'prontof.db'}")
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
-ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "1") == "1"
+ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "0") == "1"
 MAX_UPLOAD_GB = max(1, int(os.getenv("MAX_UPLOAD_GB", "500")))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_GB * 1024**3
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
@@ -423,6 +423,9 @@ def internal_complete_upload(order_id: int, upload_id: str, data: InternalUpload
                 with part.open("rb") as source:
                     shutil.copyfileobj(source, output, length=1024 * 1024)
                 total += part_size
+                # Release each staged chunk immediately: peak extra space stays near one chunk,
+                # rather than requiring a second full copy of a very large video.
+                part.unlink()
         if total <= 0:
             raise HTTPException(400, "Пустой видеофайл")
         owner = db.scalar(select(User).where(User.role == "owner").limit(1))
