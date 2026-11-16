@@ -309,7 +309,7 @@ def video_source(video_id: str, token: str = Query(min_length=20), db: Session =
         raise HTTPException(401, "Пользователь отключён")
     v = accessible_video(db, video_id, user)
     path = (VIDEO_DIR / v.stored_name).resolve()
-    if path.parent != VIDEO_DIR.resolve() or not path.is_file():
+    if os.path.commonpath([VIDEO_DIR.resolve(), path]) != str(VIDEO_DIR.resolve()) or not path.is_file():
         raise HTTPException(404, "Файл видео отсутствует")
     media_type = "video/mp4" if path.suffix.lower() == ".mp4" else "application/octet-stream"
     return FileResponse(path, filename=v.filename, media_type=media_type, content_disposition_type="inline", headers={"Cache-Control":"private, no-store"})
@@ -339,8 +339,9 @@ def complete_upload(upload_id: str, data: UploadComplete, db: Session = Depends(
     (folder / ".upload_size").unlink(missing_ok=True)
     filename = clean_filename(data.filename)
     video_id = str(uuid.uuid4())
-    stored_name = video_id + Path(filename).suffix.lower()[:12]
+    stored_name = f"orders/{order_id}/customer/original_video/{video_id}{Path(filename).suffix.lower()[:12]}"
     destination = VIDEO_DIR / stored_name
+    destination.parent.mkdir(parents=True, exist_ok=True)
     total = 0
     try:
         with destination.open("wb") as output:
@@ -427,8 +428,9 @@ async def internal_upload_single(order_id: int, upload_id: str, request: Request
             raise HTTPException(400, "Некорректный Content-Length")
     video_id = str(uuid.uuid4())
     job_id = str(uuid.uuid4())
-    stored_name = video_id + suffix[:12]
+    stored_name = f"orders/{order_id}/customer/original_video/{video_id}{suffix[:12]}"
     destination = VIDEO_DIR / stored_name
+    destination.parent.mkdir(parents=True, exist_ok=True)
     temp_path = UPLOAD_DIR / f"single_{order_id}_{upload_id}_{uuid.uuid4().hex}.tmp"
     total = 0
     committed = False
@@ -612,7 +614,7 @@ def internal_video_delete(video_id: str, request: Request, db: Session = Depends
         for receipt in db.scalars(select(InternalUploadReceipt).where(InternalUploadReceipt.job_id.in_(job_ids))).all():
             db.delete(receipt)
     path = (VIDEO_DIR / video.stored_name).resolve()
-    if path.parent == VIDEO_DIR.resolve():
+    if os.path.commonpath([VIDEO_DIR.resolve(), path]) == str(VIDEO_DIR.resolve()):
         path.unlink(missing_ok=True)
     db.delete(video)
     db.commit()
