@@ -31,6 +31,8 @@ from sqlalchemy.exc import IntegrityError
 
 # ───────────────────────── Настройки ─────────────────────────
 DATA_DIR = os.getenv("DATA_DIR", "./data")
+ORDER_DATA_DIR = os.getenv("ORDER_DATA_DIR", DATA_DIR)
+os.makedirs(ORDER_DATA_DIR, exist_ok=True)
 MEDIA_DIR = os.path.join(DATA_DIR, "media")
 os.makedirs(MEDIA_DIR, exist_ok=True)
 DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/service.db")
@@ -68,8 +70,8 @@ def media_path(media: "Media") -> str:
     """Новые файлы заказов лежат в DATA_DIR/orders; старые остаются в MEDIA_DIR."""
     filename = media.filename or ""
     if filename.startswith("orders/"):
-        path = os.path.abspath(os.path.join(DATA_DIR, filename))
-        root = os.path.abspath(os.path.join(DATA_DIR, "orders"))
+        path = os.path.abspath(os.path.join(ORDER_DATA_DIR, filename))
+        root = os.path.abspath(os.path.join(ORDER_DATA_DIR, "orders"))
         if os.path.commonpath([root, path]) != root:
             raise HTTPException(400, "Некорректный путь файла")
         return path
@@ -1161,7 +1163,7 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
     ext, kind = check_upload(file.filename, file.content_type)
     if user.role == EXECUTOR:
         evidence_folder = "photos" if kind == "image" else "videos" if kind == "video" else "files"
-        order_folder = os.path.join(DATA_DIR, "orders", str(o.id), "execution", str(user.id), evidence_folder)
+        order_folder = os.path.join(ORDER_DATA_DIR, "orders", str(o.id), "execution", str(user.id), evidence_folder)
     else:
         order_folder = os.path.join(DATA_DIR, "orders", str(o.id), "customer", "files")
     os.makedirs(order_folder, exist_ok=True)
