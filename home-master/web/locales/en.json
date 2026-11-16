@@ -488,5 +488,6 @@
   "cap_payment_confirm": "Confirm reservation payment",
   "save": "Save",
   "reservation_period": "Reservation period (hours)",
-  "reserved_by": "Reserved by"
+  "reserved_by": "Reserved by",
+  "set_expiry": "Set exact expiry"
 }
