@@ -232,6 +232,28 @@ async def video_translate_existing_media(oid:int,mid:int,target_language:str=Que
             "filename":media.original,"size_bytes":result.get("size_bytes")}
 
 
+@router.post("/orders/{oid}/video-processing/from-job/{job_id}")
+async def video_retranslate_existing_job(oid:int,job_id:str,target_language:str=Query(...,min_length=2,max_length=8),
+                                         source_language:Optional[str]=Query(default=None),
+                                         user:User=Depends(current_user),db:Session=Depends(get_db)):
+    _check_order(oid,user,db)
+    original=db.scalar(select(OrderVideoJob).where(OrderVideoJob.remote_job_id==job_id,OrderVideoJob.order_id==oid))
+    if not original:
+        raise HTTPException(404,"Исходное видео этой заявки не найдено")
+    payload={"target_language":target_language}
+    if source_language:payload["source_language"]=source_language
+    response=await _remote("POST",f"/internal/jobs/{job_id}/retranslate",json=payload)
+    result=response.json()
+    upload_id="hm-"+uuid.uuid4().hex
+    row=OrderVideoJob(order_id=oid,user_id=user.id,upload_id=upload_id,remote_job_id=result["job_id"],
+                      filename=original.filename[:255],target_language=target_language)
+    db.add(row)
+    log(db,user,"video_retranslation_start","order",oid,f"source_job={job_id}; target={target_language}")
+    db.commit()
+    return {"job_id":result["job_id"],"order_id":oid,"status":result.get("status","queued"),
+            "filename":original.filename}
+
+
 @router.get("/orders/{oid}/video-processing")
 async def order_video_processing(oid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     _check_order(oid, user, db)
