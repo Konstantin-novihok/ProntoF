@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import ForeignKey, Integer, String, DateTime, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from server import (ADMIN, CLIENT, EXECUTOR, HEAD, OWNER, STAFF, Base, Media, MEDIA_DIR, User, current_user,
+from server import (ADMIN, CLIENT, EXECUTOR, HEAD, OWNER, STAFF, Base, Media, MEDIA_DIR, User, current_user, media_path,
                     get_db, get_order, log, need, now)
 
 router = APIRouter()
@@ -216,7 +216,7 @@ async def video_translate_existing_media(oid:int,mid:int,target_language:str=Que
     media=db.get(Media,mid)
     if not media or media.order_id!=oid or not (media.mime or "").startswith("video/"):
         raise HTTPException(404,"Исходное видео не найдено в этом заказе")
-    filepath=os.path.join(MEDIA_DIR,media.filename)
+    filepath=media_path(media)
     if not os.path.isfile(filepath):
         raise HTTPException(404,"Файл оригинала отсутствует на сервере")
     upload_id="hm-"+uuid.uuid4().hex
