@@ -20,7 +20,7 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from server import (ADMINS, EXECUTOR, EXT_KIND, HEAD, MEDIA_DIR, DOCS_DIR, OBSERVER, OWNER, STAFF_ROLES, Base, Media, User,
-                    UserDoc, check_upload, current_user, file_response, get_db, guess_mime, log, need, now, save_stream,
+                    UserDoc, check_upload, current_user, file_response, get_db, get_order, guess_mime, log, need, now, save_stream,
                     DATA_DIR)
 
 router = APIRouter()
@@ -98,6 +98,14 @@ def download_file(fid: int, user: User = Depends(current_user), db: Session = De
     f = db.get(StoredFile, fid)
     if not f:
         raise HTTPException(404)
+    if f.source == "report":
+        from collaboration import ExecutorReport, participant
+        report = db.get(ExecutorReport, f.ref_id) if f.ref_id else None
+        if not report:
+            raise HTTPException(404)
+        get_order(db, user, report.order_id)
+        if user.role == EXECUTOR and (report.executor_id != user.id or not participant(db, report.order_id, user.id)):
+            raise HTTPException(403, "Нет доступа к файлам чужого отчёта")
     return file_response(os.path.join(FILES_DIR, f.filename), f.original, f.kind, f.mime)
 
 
