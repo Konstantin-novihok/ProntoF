@@ -9,4 +9,4 @@ pydantic>=2.8,<3
 faster-whisper==1.2.1
 av==18.1.0
 argostranslate>=1.9,<2
-piper-tts==1.8.0
+piper-tts @ https://github.com/OHF-Voice/piper1-gpl/archive/9b64bfcc0cb8b4243fa3e963915589c24762b872.zip
