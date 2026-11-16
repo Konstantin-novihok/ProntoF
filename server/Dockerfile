@@ -2,15 +2,27 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    CMAKE_BUILD_PARALLEL_LEVEL=2
 
+# Piper's pinned source distribution compiles native phonemizer components.
+# Keep the build toolchain available during pip installation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates && \
+    ffmpeg ca-certificates build-essential cmake ninja-build && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY server/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && apt-get purge -y build-essential git && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
+# Argos Translate installs Stanza, which depends on torch. Install the CPU-only
+# PyTorch wheel first so pip reuses it instead of downloading CUDA/NVIDIA wheels.
+RUN pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cpu \
+      --extra-index-url https://pypi.org/simple \
+      "torch>=1.3.0" && \
+    python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('CPU-only PyTorch:', torch.__version__)" && \
+    pip install --no-cache-dir -r requirements.txt
+
 COPY server/app.py ./app.py
 COPY server/rendering.py ./rendering.py
 
