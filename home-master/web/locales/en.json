@@ -472,7 +472,7 @@
   "other_cost": "Other costs",
   "executor_report": "My work report",
   "work_done": "Work completed",
-  "report_materials_json": "Materials (JSON: [{\"name\":\"Part\",\"qty\":1,\"unit\":\"pcs\"}])",
+  "report_materials_json": "Materials JSON, e.g. [{\"name\":\"Part\",\"qty\":1,\"unit\":\"pcs\",\"unit_cost\":12.5}] (optional item_id uses warehouse price)",
   "submit_report": "Submit report",
   "reserve_material": "Reserve material",
   "no_available_stock": "No available stock",
@@ -489,5 +489,6 @@
   "save": "Save",
   "reservation_period": "Reservation period (hours)",
   "reserved_by": "Reserved by",
-  "set_expiry": "Set exact expiry"
+  "set_expiry": "Set exact expiry",
+  "report_attach_files": "Attach photos/videos"
 }
