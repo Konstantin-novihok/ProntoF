@@ -493,5 +493,7 @@
   "report_attach_files": "Прикрепить фото/видео",
   "manufacturer": "Производитель",
   "package_volume": "Объём упаковки/тары",
-  "package_unit": "Единица объёма тары"
+  "package_unit": "Единица объёма тары",
+  "translate_video": "Перевести оригинальное видео",
+  "video_source": "Исходное видео"
 }
