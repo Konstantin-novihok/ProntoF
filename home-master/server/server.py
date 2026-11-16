@@ -812,7 +812,7 @@ def list_orders(status: Optional[str] = None, user: User = Depends(current_user)
 @app.post("/orders")
 def create_order(b: OrderIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Create order. X-Client-Request-ID makes offline retries idempotent."""
-    need(user, OWNER, ADMIN, HEAD, CLIENT, STAFF)
+    need(user, OWNER, ADMIN, HEAD, CLIENT, STAFF, OBSERVER)
     client_key = (request.headers.get("x-client-request-id") or "").strip()
     # Fingerprint validated canonical payload so an idempotency key cannot silently
     # turn a changed offline intent into a replay of an unrelated order.
@@ -834,6 +834,8 @@ def create_order(b: OrderIn, request: Request, user: User = Depends(current_user
         client_id = user.id
     elif user.role == STAFF:
         client_id = user.parent_id
+    elif user.role == OBSERVER:
+        client_id = None
     else:
         client_id = b.client_id
     order_currency = (b.currency or get_setting(db, "currency") or "UAH").strip().upper()
