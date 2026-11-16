@@ -1,6 +1,8 @@
 """Внутренний мост Home Master -> ProntoF. Пользователи работают только в Home Master."""
 import os
 import re
+import uuid
+import asyncio
 import datetime as dt
 from typing import Optional
 
@@ -10,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import ForeignKey, Integer, String, DateTime, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from server import (ADMIN, CLIENT, EXECUTOR, HEAD, OWNER, STAFF, Base, User, current_user,
+from server import (ADMIN, CLIENT, EXECUTOR, HEAD, OWNER, STAFF, Base, Media, MEDIA_DIR, User, current_user,
                     get_db, get_order, log, need, now)
 
 router = APIRouter()
@@ -77,6 +79,37 @@ async def _remote_stream(path: str, request: Request, params: dict):
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST", PRONTOF_API_URL + path, headers={**_headers(), "Content-Type": "application/octet-stream"},
+                params=params, content=body_stream()
+            ) as response:
+                await response.aread()
+                if response.status_code >= 400:
+                    try:
+                        detail = response.json().get("detail", response.text[:500])
+                    except Exception:
+                        detail = response.text[:500]
+                    raise HTTPException(response.status_code, detail)
+                return response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Сервис обработки видео недоступен: {exc.__class__.__name__}")
+
+
+async def _remote_file_stream(path: str, filepath: str, params: dict):
+    """Потоковая передача уже сохранённого оригинала Worker без чтения всего файла в RAM."""
+    _ensure_config()
+
+    async def body_stream():
+        with open(filepath, "rb") as source:
+            while True:
+                chunk = await asyncio.to_thread(source.read, 1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "POST", PRONTOF_API_URL + path,
+                headers={**_headers(), "Content-Type": "application/octet-stream"},
                 params=params, content=body_stream()
             ) as response:
                 await response.aread()
@@ -173,6 +206,30 @@ async def video_upload_complete(oid: int, upload_id: str, data: VideoUploadCompl
         raise HTTPException(409, "Не удалось сохранить связь видео с заказом; повторите отправку с тем же ID")
     return {"job_id": result["job_id"], "order_id": oid, "status": result.get("status", "queued"),
             "filename": data.filename, "size_bytes": result.get("size_bytes")}
+
+
+@router.post("/orders/{oid}/video-processing/from-media/{mid}")
+async def video_translate_existing_media(oid:int,mid:int,target_language:str=Query(...,min_length=2,max_length=8),
+                                         source_language:Optional[str]=Query(default=None),
+                                         user:User=Depends(current_user),db:Session=Depends(get_db)):
+    _check_order(oid,user,db)
+    media=db.get(Media,mid)
+    if not media or media.order_id!=oid or not (media.mime or "").startswith("video/"):
+        raise HTTPException(404,"Исходное видео не найдено в этом заказе")
+    filepath=os.path.join(MEDIA_DIR,media.filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(404,"Файл оригинала отсутствует на сервере")
+    upload_id="hm-"+uuid.uuid4().hex
+    params={"filename":media.original,"target_language":target_language}
+    if source_language:params["source_language"]=source_language
+    result=await _remote_file_stream(f"/internal/orders/{oid}/uploads/{upload_id}",filepath,params)
+    row=OrderVideoJob(order_id=oid,user_id=user.id,upload_id=upload_id,remote_job_id=result["job_id"],
+                      filename=media.original[:255],target_language=target_language)
+    db.add(row)
+    log(db,user,"video_processing_start","order",oid,f"source_media={mid}; target={target_language}")
+    db.commit()
+    return {"job_id":result["job_id"],"order_id":oid,"status":result.get("status","queued"),
+            "filename":media.original,"size_bytes":result.get("size_bytes")}
 
 
 @router.get("/orders/{oid}/video-processing")
