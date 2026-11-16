@@ -472,7 +472,7 @@
   "other_cost": "Інші витрати",
   "executor_report": "Мій звіт про роботу",
   "work_done": "Виконані роботи",
-  "report_materials_json": "Матеріали (JSON: [{\"name\":\"Деталь\",\"qty\":1,\"unit\":\"шт\"}])",
+  "report_materials_json": "Матеріали у JSON, наприклад [{\"name\":\"Деталь\",\"qty\":1,\"unit\":\"шт\",\"unit_cost\":12.5}] (необов'язковий item_id підставить ціну складу)",
   "submit_report": "Надіслати звіт",
   "reserve_material": "Зарезервувати матеріал",
   "no_available_stock": "Немає доступного залишку",
@@ -489,5 +489,6 @@
   "save": "Зберегти",
   "reservation_period": "Термін резерву (годин)",
   "reserved_by": "Зарезервував",
-  "set_expiry": "Встановити точний час завершення"
+  "set_expiry": "Встановити точний час завершення",
+  "report_attach_files": "Додати фото/відео"
 }
