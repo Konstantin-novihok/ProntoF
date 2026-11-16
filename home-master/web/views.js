@@ -294,6 +294,7 @@ route('order', async (id) => {
       j.status === 'done' ? h('div', {class:'card'}, 
         j.render_status === 'ready' ? h('div', {},
           h('b', {}, t('video_render_ready')),
+          h('p', {class:'muted small'}, t('video_ai_voice_notice')),
           h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/render/preview`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
           h('a', {class:'btnlink', href:withToken(`/orders/${id}/video-processing/${j.job_id}/render/download`) + (window.AndroidBridge ? '&client=android' : ''), download:j.render_filename || 'translated.mp4'}, '⬇ ' + t('video_download'))
         ) : ['queued','running'].includes(j.render_status) ? h('p', {class:'muted'}, t('video_rendering')) :
