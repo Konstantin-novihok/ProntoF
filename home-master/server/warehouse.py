@@ -102,8 +102,9 @@ def item_out(db: Session, it: Item, viewer: User):
     thumb = db.scalar(select(StoredFile.id).where(StoredFile.source == "warehouse", StoredFile.ref_id == it.id, StoredFile.kind == "image").order_by(StoredFile.id).limit(1))
     try:
         from collaboration import Reservation
+        from collaboration import reservation_remaining
         active_reservations = db.scalars(select(Reservation).where(Reservation.item_id == it.id, Reservation.status == "active")).all()
-        reserved = sum(float(r.qty) for r in active_reservations)
+        reserved = sum(reservation_remaining(db, r) for r in active_reservations)
     except Exception:
         reserved = 0.0
     available = max(0.0, in_wh - reserved)
@@ -310,6 +311,62 @@ def make_move(b: MoveIn, user: User = Depends(current_user), db: Session = Depen
     log(db, user, "wh_" + k, "item", it.id, f"{b.qty} {it.unit}" + (f" order={b.order_id}" if b.order_id else ""))
     db.commit()
     return move_out(db, m)
+
+
+
+def issue_reservation(db: Session, reservation_id: int, qty: float, user: User, commit: bool = False):
+    """Issue reserved stock directly from the main warehouse and create its cost entry."""
+    from collaboration import Reservation, ReservationIssue, capability, participant, reservation_remaining
+    from finance import Expense, r2
+    reservation = db.get(Reservation, reservation_id)
+    if not reservation or reservation.status != "active":
+        raise HTTPException(404, "Активный резерв не найден")
+    if user.role == EXECUTOR:
+        if reservation.user_id != user.id or not participant(db, reservation.order_id, user.id):
+            raise HTTPException(403, "Вы можете выдать только свой резерв в назначенном заказе")
+    elif user.role not in MANAGERS and not capability(db, user, "reservation_payment_confirm"):
+        raise HTTPException(403, "Недостаточно прав для выдачи резерва")
+    order = db.get(Order, reservation.order_id)
+    if not order or order.settled_at:
+        raise HTTPException(409, "Заказ не найден или уже рассчитан")
+    item = db.get(Item, reservation.item_id)
+    if not item or item.kind != "material":
+        raise HTTPException(400, "Резерв не относится к расходному материалу")
+    remaining = reservation_remaining(db, reservation)
+    if qty <= 0 or qty > remaining + 1e-9:
+        raise HTTPException(409, f"В резерве осталось {remaining:g} {item.unit}")
+    stock = _stock(db, item.id, None)
+    if not stock or stock.qty + 1e-9 < qty:
+        raise HTTPException(409, "Фактический остаток склада меньше количества резерва")
+    stock.qty = round(stock.qty - qty, 6)
+    unit_cost = float(item.unit_cost or 0)
+    issue = ReservationIssue(reservation_id=reservation.id, item_id=item.id, order_id=order.id,
+                             qty=qty, unit_cost=unit_cost, issued_by=user.id)
+    db.add(issue)
+    db.add(Expense(order_id=order.id, kind="material", description=item.name, qty=qty,
+                   unit_cost=unit_cost, amount=r2(qty * unit_cost), item_id=item.id,
+                   auto=True, currency=order.currency or "UAH", created_by=user.id))
+    move = Move(item_id=item.id, kind="consume", qty=qty, from_user_id=None, to_user_id=None,
+                order_id=order.id, unit_cost=unit_cost, note=f"Выдача резерва #{reservation.id}",
+                created_by=user.id)
+    db.add(move)
+    db.flush()
+    if reservation_remaining(db, reservation) <= 1e-9:
+        reservation.status = "consumed"
+    log(db, user, "warehouse_reservation_issued", "reservation", reservation.id,
+        f"order={order.id}; item={item.id}; qty={qty}; unit_cost={unit_cost}")
+    if commit:
+        db.commit()
+    return {"reservation_id": reservation.id, "order_id": order.id, "item_id": item.id,
+            "issued_qty": reservation_issued_qty_safe(db, reservation.id),
+            "remaining_qty": reservation_remaining(db, reservation),
+            "status": reservation.status, "unit_cost": unit_cost, "amount": r2(qty * unit_cost)}
+
+
+def reservation_issued_qty_safe(db: Session, reservation_id: int) -> float:
+    from collaboration import ReservationIssue
+    return float(db.scalar(select(func.coalesce(func.sum(ReservationIssue.qty), 0.0)).where(
+        ReservationIssue.reservation_id == reservation_id)) or 0)
 
 
 @router.get("/warehouse/moves")
