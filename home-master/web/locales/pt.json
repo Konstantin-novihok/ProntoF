@@ -470,5 +470,11 @@
   "update_download": "Baixar atualização disponível",
   "update_none": "Não há novas atualizações publicadas.",
   "update_module_missing": "O módulo de atualização ainda não foi carregado.",
-  "update_check_error": "Não foi possível verificar as atualizações: {error}"
+  "update_check_error": "Não foi possível verificar as atualizações: {error}",
+  "video_render": "Criar vídeo com fala traduzida",
+  "video_rendering": "A síntese de voz e a criação do MP4 estão em andamento. Atualize o pedido para verificar o estado.",
+  "video_render_ready": "O vídeo traduzido está pronto",
+  "video_download": "Baixar MP4",
+  "video_render_failed": "Não foi possível criar o vídeo",
+  "video_render_started": "A criação do vídeo final foi adicionada à fila."
 }
