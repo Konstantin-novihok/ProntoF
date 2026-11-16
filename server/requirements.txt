@@ -9,4 +9,4 @@ pydantic>=2.8,<3
 faster-whisper==1.2.1
 av==18.1.0
 argostranslate>=1.9,<2
-piper-tts==1.4.2
+piper-tts==1.8.0
