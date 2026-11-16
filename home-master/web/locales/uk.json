@@ -490,5 +490,8 @@
   "reservation_period": "Термін резерву (годин)",
   "reserved_by": "Зарезервував",
   "set_expiry": "Встановити точний час завершення",
-  "report_attach_files": "Додати фото/відео"
+  "report_attach_files": "Додати фото/відео",
+  "manufacturer": "Виробник",
+  "package_volume": "Об’єм упаковки/тари",
+  "package_unit": "Одиниця об’єму тари"
 }
