@@ -97,9 +97,17 @@ def item_out(db: Session, it: Item, viewer: User):
     in_wh = qty_of(db, it.id, None)
     with_staff = float(db.scalar(select(func.coalesce(func.sum(Stock.qty), 0.0)).where(Stock.item_id == it.id, Stock.holder_user_id.is_not(None))) or 0)
     thumb = db.scalar(select(StoredFile.id).where(StoredFile.source == "warehouse", StoredFile.ref_id == it.id, StoredFile.kind == "image").order_by(StoredFile.id).limit(1))
+    try:
+        from collaboration import Reservation
+        active_reservations = db.scalars(select(Reservation).where(Reservation.item_id == it.id, Reservation.status == "active")).all()
+        reserved = sum(float(r.qty) for r in active_reservations)
+    except Exception:
+        reserved = 0.0
+    available = max(0.0, in_wh - reserved)
     return dict(id=it.id, sku=it.sku, name=it.name, kind=it.kind, unit=it.unit, unit_cost=it.unit_cost, min_qty=it.min_qty,
                 description=it.description, active=it.active, in_warehouse=in_wh, with_staff=with_staff,
-                total=in_wh + with_staff, mine=qty_of(db, it.id, viewer.id), low=bool(it.min_qty and in_wh < it.min_qty), thumb=thumb)
+                total=in_wh + with_staff, reserved=reserved, available=available, mine=qty_of(db, it.id, viewer.id),
+                low=bool(it.min_qty and available < it.min_qty), thumb=thumb)
 
 
 class ItemIn(BaseModel):
