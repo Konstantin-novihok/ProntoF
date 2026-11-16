@@ -43,6 +43,7 @@ jobs:
           assert "/orders/{oid}/reports" in paths
           assert "/orders/{oid}/reports/me" in paths
           assert "/orders/{oid}/reports/me/files" in paths
+          assert "/me/capabilities" in paths
           assert "/warehouse/reservations" in paths
           assert "/warehouse/reservations/{rid}/confirm-payment" in paths
           assert "/warehouse/reservations/settings/period" in paths
@@ -51,6 +52,8 @@ jobs:
           assert "/trusted-users/{uid}/capabilities" in paths
           tables = set(server.Base.metadata.tables)
           assert {"order_participants", "executor_reports", "trusted_capabilities", "wh_reservations"} <= tables
+          from warehouse import Item
+          assert {"manufacturer", "package_volume", "package_unit"} <= set(Item.__table__.columns.keys())
           print("Home Master API imports and collaboration/reservation routes are registered.")
           PY
       - name: Check Home Master browser JavaScript
