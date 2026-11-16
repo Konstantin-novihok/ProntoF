@@ -321,6 +321,8 @@ def issue_reservation(db: Session, reservation_id: int, qty: float, user: User, 
     reservation = db.get(Reservation, reservation_id)
     if not reservation or reservation.status != "active":
         raise HTTPException(404, "Активный резерв не найден")
+    if not reservation.paid_at:
+        raise HTTPException(409, "Сначала подтвердите оплату резерва")
     if user.role == EXECUTOR:
         if reservation.user_id != user.id or not participant(db, reservation.order_id, user.id):
             raise HTTPException(403, "Вы можете выдать только свой резерв в назначенном заказе")
