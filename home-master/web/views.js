@@ -291,6 +291,15 @@ route('order', async (id) => {
       h('div', {class:'muted small'}, `${j.status || '—'} · ${j.progress || 0}% · ${j.message || ''}`),
       h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/source`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
       j.error ? h('p', {class:'toast err'}, j.error) : null,
+      j.status === 'done' ? h('div', {class:'card'}, 
+        j.render_status === 'ready' ? h('div', {},
+          h('b', {}, t('video_render_ready')),
+          h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/render/preview`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
+          h('a', {class:'btnlink', href:withToken(`/orders/${id}/video-processing/${j.job_id}/render/download`), download:j.render_filename || 'translated.mp4'}, '⬇ ' + t('video_download'))
+        ) : ['queued','running'].includes(j.render_status) ? h('p', {class:'muted'}, t('video_rendering')) :
+          h('div', {}, j.render_status === 'failed' ? h('p', {class:'toast err'}, j.render_error || t('video_render_failed')) : null,
+            h('button', {class:'go', onclick:guard(async () => { await api('POST', `/orders/${id}/video-processing/${j.job_id}/render`, {}); toast(t('video_render_started')); reload(); })}, t('video_render')))
+      ) : null,
       j.transcript ? h('details', {}, h('summary', {}, t('video_transcript')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.transcript)) : null,
       j.translated_text ? h('details', {}, h('summary', {}, t('video_translation')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.translated_text)) : null))) : null;
   const fin = [1, 2, 3, 4, 7, 6].includes(role) ? await financePanel(o) : null;
