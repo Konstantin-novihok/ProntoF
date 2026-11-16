@@ -9,7 +9,7 @@ import server as core
 from server import ADMINS, EXECUTOR, OWNER, STAFF_ROLES, Base, Order, User, current_user, get_db, get_order, log, need, now
 
 router=APIRouter()
-CAPS={"order_assign","warehouse_reservation_view","reservation_payment_confirm"}
+CAPS={"order_assign","warehouse_reservation_view","reservation_payment_confirm","warehouse_reservation_issue"}
 
 class OrderParticipant(Base):
  __tablename__="order_participants"
@@ -231,9 +231,13 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
    reservation_id=int(m["reservation_id"]) if m.get("reservation_id") else None
    item_id=int(m["item_id"]) if m.get("item_id") else None
    if reservation_id:
+    from warehouse import Item
     reservation=db.get(Reservation,reservation_id)
     if not reservation or reservation.order_id!=oid or (item_id is not None and item_id!=reservation.item_id):raise ValueError()
     item_id=reservation.item_id
+    reserved_item=db.get(Item,item_id)
+    if not reserved_item:raise ValueError()
+    unit_cost=float(reserved_item.unit_cost or 0)
     if qty>reservation_remaining(db,reservation)+1e-9:raise ValueError()
    normalized_materials.append({"name":str(m["name"]).strip()[:200],"qty":qty,"unit":str(m.get("unit","") or "")[:20],"unit_cost":unit_cost,"item_id":item_id,"reservation_id":reservation_id})
   except (TypeError,ValueError,KeyError):
