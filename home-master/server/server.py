@@ -929,6 +929,7 @@ def assign(oid: int, b: AssignIn, user: User = Depends(current_user), db: Sessio
             raise HTTPException(404, "Department not found")
         log(db, user, "assign_department", "order", o.id, f"{o.department_id}->{b.department_id}")
         o.department_id = b.department_id
+    previous_executor_id = o.executor_id
     if b.executor_id:
         ex = db.get(User, b.executor_id)
         if not ex or ex.role != EXECUTOR:
@@ -938,7 +939,6 @@ def assign(oid: int, b: AssignIn, user: User = Depends(current_user), db: Sessio
         if user.role == HEAD and ex.department_id != user.department_id:
             raise HTTPException(403, "Executor is not in your department")
         from collaboration import OrderParticipant, participant
-        previous_executor_id = o.executor_id
         if previous_executor_id and previous_executor_id != ex.id:
             previous = participant(db, o.id, previous_executor_id)
             if previous:
@@ -954,6 +954,8 @@ def assign(oid: int, b: AssignIn, user: User = Depends(current_user), db: Sessio
             o.status = "assigned"
     db.commit()
     from storage import sync_user_order_index
+    if previous_executor_id and previous_executor_id != b.executor_id:
+        sync_user_order_index(db, previous_executor_id, o, "reassigned", False)
     if b.executor_id:
         sync_user_order_index(db, b.executor_id, o, "assigned", True)
     return order_out(db, o, user)
