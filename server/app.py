@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import os
 import re
+import hmac
 import secrets
 import shutil
 import threading
@@ -30,6 +31,7 @@ for folder in (DATA_DIR, UPLOAD_DIR, VIDEO_DIR, JOB_DIR):
 
 DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'prontof.db'}")
 SECRET_KEY = os.getenv("SECRET_KEY", "")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 OWNER_PASSWORD = os.getenv("OWNER_PASSWORD", "")
 ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "1") == "1"
 MAX_UPLOAD_GB = max(1, int(os.getenv("MAX_UPLOAD_GB", "500")))
@@ -91,8 +93,21 @@ class Job(Base):
     segments_json: Mapped[str] = mapped_column(Text, default="[]")
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc).replace(tzinfo=None))
+    order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+
+class InternalUploadReceipt(Base):
+    __tablename__ = "internal_upload_receipts"
+    upload_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    order_id: Mapped[int] = mapped_column(Integer, index=True)
+    job_id: Mapped[str] = mapped_column(String(36), unique=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc).replace(tzinfo=None))
 
 Base.metadata.create_all(engine)
+# Backward-compatible migration for the existing test database.
+with engine.begin() as conn:
+    job_columns = {c["name"] for c in __import__("sqlalchemy").inspect(engine).get_columns("jobs")}
+    if "order_id" not in job_columns:
+        conn.exec_driver_sql("ALTER TABLE jobs ADD COLUMN order_id INTEGER")
 
 def db_session():
     with SessionLocal() as session:
@@ -154,6 +169,14 @@ def startup():
         if db.scalar(select(User).limit(1)) is None:
             db.add(User(username="owner", full_name="Владелец", password_hash=password_hash.hash(OWNER_PASSWORD), role="owner"))
             db.commit()
+
+def require_internal(request: Request):
+    if not INTERNAL_API_KEY:
+        raise HTTPException(503, "Внутренняя интеграция не настроена")
+    supplied = request.headers.get("x-prontof-internal-key", "")
+    if not hmac.compare_digest(supplied, INTERNAL_API_KEY):
+        raise HTTPException(403, "Недостаточно прав для внутреннего API")
+
 
 @app.get("/api/health")
 def health():
@@ -329,6 +352,112 @@ def create_processing_job(video_id: str, data: ProcessRequest, db: Session = Dep
     db.commit()
     return {"id":job.id,"status":job.status}
 
+class InternalUploadComplete(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    total_chunks: int = Field(ge=1, le=100001)
+    source_language: Optional[str] = None
+    target_language: str = Field(min_length=2, max_length=8)
+
+
+@app.put("/internal/orders/{order_id}/uploads/{upload_id}/chunks/{index}")
+async def internal_upload_chunk(order_id: int, upload_id: str, index: int, request: Request):
+    require_internal(request)
+    if order_id < 1 or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", upload_id) or index < 0 or index > 100000:
+        raise HTTPException(400, "Некорректный ID заказа, загрузки или номер части")
+    body = await request.body()
+    if not body or len(body) > 32 * 1024 * 1024:
+        raise HTTPException(413, "Размер части должен быть от 1 байта до 32 MiB")
+    folder = UPLOAD_DIR / f"hm_{order_id}_{upload_id}"
+    folder.mkdir(parents=True, exist_ok=True)
+    part = folder / f"{index}.part"
+    temp = folder / f"{index}.tmp"
+    previous_size = part.stat().st_size if part.is_file() else 0
+    staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
+    if staged_size - previous_size + len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+    if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
+        raise HTTPException(507, "На диске недостаточно места для следующей части")
+    temp.write_bytes(body)
+    temp.replace(part)
+    return {"order_id": order_id, "upload_id": upload_id, "index": index, "bytes": len(body)}
+
+
+@app.post("/internal/orders/{order_id}/uploads/{upload_id}/complete")
+def internal_complete_upload(order_id: int, upload_id: str, data: InternalUploadComplete,
+                             request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    if order_id < 1 or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", upload_id):
+        raise HTTPException(400, "Некорректный ID заказа или загрузки")
+    receipt = db.get(InternalUploadReceipt, upload_id)
+    if receipt:
+        if receipt.order_id != order_id:
+            raise HTTPException(409, "ID загрузки уже привязан к другому заказу")
+        job = db.get(Job, receipt.job_id)
+        if not job:
+            raise HTTPException(409, "Запись загрузки найдена, но задача отсутствует")
+        return {"job_id": job.id, "video_id": job.video_id, "order_id": order_id, "status": job.status}
+    if data.source_language and data.source_language not in LANGUAGES:
+        raise HTTPException(400, "Неподдерживаемый исходный язык")
+    if data.target_language not in LANGUAGES:
+        raise HTTPException(400, "Неподдерживаемый язык перевода")
+    folder = UPLOAD_DIR / f"hm_{order_id}_{upload_id}"
+    if not folder.is_dir():
+        raise HTTPException(404, "Части видео не найдены")
+    filename = clean_filename(data.filename)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".webm", ".3gp", ".mkv", ".avi", ".m4v", ".mpeg", ".mpg"}:
+        raise HTTPException(400, "Поддерживаются видеофайлы MP4, MOV, WEBM, 3GP, MKV, AVI, M4V, MPEG")
+    video_id = str(uuid.uuid4())
+    stored_name = video_id + suffix[:12]
+    destination = VIDEO_DIR / stored_name
+    total = 0
+    try:
+        with destination.open("wb") as output:
+            for index in range(data.total_chunks):
+                part = folder / f"{index}.part"
+                if not part.is_file():
+                    raise HTTPException(400, f"Не найдена часть загрузки №{index}")
+                part_size = part.stat().st_size
+                if total + part_size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+                with part.open("rb") as source:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
+                total += part_size
+        if total <= 0:
+            raise HTTPException(400, "Пустой видеофайл")
+        owner = db.scalar(select(User).where(User.role == "owner").limit(1))
+        if not owner:
+            raise HTTPException(503, "Владелец сервиса не создан")
+        video = Video(id=video_id, owner_id=owner.id, filename=filename, stored_name=stored_name,
+                      size_bytes=total, visibility="private")
+        job = Job(id=str(uuid.uuid4()), video_id=video_id, owner_id=owner.id, order_id=order_id,
+                  status="queued", progress=0, message="Видео заказа принято в очередь",
+                  source_language=data.source_language or "", target_language=data.target_language)
+        db.add(video)
+        db.add(job)
+        db.add(InternalUploadReceipt(upload_id=upload_id, order_id=order_id, job_id=job.id))
+        db.commit()
+        shutil.rmtree(folder, ignore_errors=True)
+        return {"job_id": job.id, "video_id": video_id, "order_id": order_id, "status": job.status,
+                "filename": filename, "size_bytes": total}
+    except Exception:
+        db.rollback()
+        destination.unlink(missing_ok=True)
+        raise
+
+
+@app.get("/internal/jobs/{job_id}")
+def internal_job_detail(job_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Задача не найдена")
+    return {"id": job.id, "order_id": job.order_id, "video_id": job.video_id, "status": job.status,
+            "progress": job.progress, "message": job.message, "error": job.error,
+            "source_language": job.source_language, "target_language": job.target_language,
+            "transcript": job.transcript, "translated_text": job.translated_text}
+
+
 @app.get("/api/jobs")
 def list_jobs(db: Session = Depends(db_session), user: User = Depends(current_user)):
     stmt = select(Job).order_by(Job.created_at.desc()).limit(100)
@@ -473,5 +602,4 @@ def worker_loop():
 def start_worker():
     threading.Thread(target=worker_loop, daemon=True, name="prontof-worker").start()
 
-if Path(os.getenv("WEB_DIR", "/app/web")).is_dir():
-    app.mount("/", StaticFiles(directory=os.getenv("WEB_DIR", "/app/web"), html=True), name="web")
+# Пользовательский интерфейс приложения обслуживается Home Master; этот контейнер — только внутренний worker/API.
