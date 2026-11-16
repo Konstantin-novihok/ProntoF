@@ -32,7 +32,8 @@ jobs:
           paths = set(server.app.openapi()["paths"])
           mounted = {getattr(route, "path", None) for route in server.app.routes}
           assert "/app" in mounted
-          assert "/orders/{oid}/video-processing/uploads/{upload_id}/chunks/{index}" in paths
+          assert "/orders/{oid}/video-processing/uploads/{upload_id}" in paths
+          assert "/orders/{oid}/video-processing/uploads/{upload_id}/chunks/{index}" in paths  # backward compatibility
           assert "/orders/{oid}/video-processing" in paths
           assert "/storage/files" in paths
           print("Home Master API imports and video routes are registered.")
