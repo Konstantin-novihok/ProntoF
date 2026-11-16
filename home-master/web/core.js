@@ -71,6 +71,7 @@ async function setLang(code, rerender = true) {
   ls.set('hm_lang', code);
   S.tr = await (await fetch(`locales/${code}.json`)).json().catch(() => ({}));
   document.documentElement.lang = code;
+  window.dispatchEvent(new Event('hm:language-changed'));
   const sel = $('#lang');
   sel.replaceChildren(...S.langs.map((l) => h('option', {value: l.code, selected: l.code === code}, l.name)));
   $('#logout').textContent = t('logout');
