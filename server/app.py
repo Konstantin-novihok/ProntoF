@@ -957,9 +957,17 @@ def process_job(job_id: str):
         update_job(job_id, status="error", progress=0, message="Ошибка обработки", error=str(exc))
 
 def worker_loop():
+    last_render_cleanup = 0.0
     while True:
         job_id = None
         try:
+            if time.time() - last_render_cleanup >= 300:
+                try:
+                    from rendering import cleanup_expired_rendered_outputs
+                    cleanup_expired_rendered_outputs()
+                except Exception:
+                    pass
+                last_render_cleanup = time.time()
             with SessionLocal() as db:
                 job = db.scalar(select(Job).where(Job.status == "queued").order_by(Job.created_at.asc()).limit(1))
                 if job:
@@ -977,6 +985,11 @@ def worker_loop():
 
 @app.on_event("startup")
 def start_worker():
+    try:
+        from rendering import recover_interrupted_renders
+        recover_interrupted_renders()
+    except Exception:
+        pass
     threading.Thread(target=worker_loop, daemon=True, name="prontof-worker").start()
 
 # Пользовательский интерфейс приложения обслуживается Home Master; этот контейнер — только внутренний worker/API.
