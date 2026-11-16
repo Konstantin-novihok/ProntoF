@@ -28,12 +28,14 @@ VOICE_BY_LANGUAGE = {
     "es": "es_ES-davefx-medium",
     "fr": "fr_FR-siwis-medium",
     "it": "it_IT-paola-medium",
+    "lt": "lt_LT-ingute-medium",
     "no": "no_NO-talesyntese-medium",
     "pl": "pl_PL-darkman-medium",
     "pt": "pt_BR-faber-medium",
     "ru": "ru_RU-irina-medium",
     "sk": "sk_SK-lili-medium",
     "uk": "uk_UA-ukrainian_tts-medium",
+    "lv": "lv_LV-aivars-medium",
 }
 
 def voice_for_language(language: str) -> str | None:
