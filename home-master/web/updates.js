@@ -55,15 +55,18 @@
     const info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:180px';
     const title = document.createElement('strong');
-    title.textContent = 'Доступно обновление Home Master ' + latest.version;
+    title.textContent = t('update_available').replace('{version}', latest.version);
     const desc = document.createElement('div');
-    desc.textContent = 'Установлена версия ' + (installedVersion() || 'неизвестна') + '. Обновление загружено на ваш сервер.';
+    desc.textContent = t('update_installed').replace('{version}', installedVersion() || (S.lang === 'ru' ? 'неизвестна' : S.lang === 'uk' ? 'невідома' : S.lang === 'pt' ? 'desconhecida' : 'unknown'));
     desc.style.cssText = 'font-size:13px;margin-top:4px';
-    info.append(title, desc);
+    const benefit = document.createElement('div');
+    benefit.textContent = t('update_benefit');
+    benefit.style.cssText = 'font-size:13px;margin-top:6px;line-height:1.45';
+    info.append(title, desc, benefit);
     const apply = document.createElement('button');
-    apply.type = 'button'; apply.textContent = 'Скачать и установить'; apply.addEventListener('click', download);
+    apply.type = 'button'; apply.textContent = t('update_download_install'); apply.addEventListener('click', download);
     const later = document.createElement('button');
-    later.type = 'button'; later.className = 'ghost'; later.textContent = 'Позже';
+    later.type = 'button'; later.className = 'ghost'; later.textContent = t('update_later');
     later.addEventListener('click', () => { try { localStorage.setItem(DISMISSED, latest.version); } catch (_) {} removeBanner(); });
     banner.append(info, apply, later);
     const header = document.querySelector('.top');
@@ -80,10 +83,11 @@
       show(!!force);
       return latest;
     } catch (e) {
-      if (force && window.toast) toast('Не удалось проверить обновления: ' + e.message, true);
+      if (force && window.toast) toast(t('update_check_error').replace('{error}', e.message), true);
       return null;
     }
   }
+  window.addEventListener('hm:language-changed', () => { if (latest) { removeBanner(); show(false); } });
   window.HomeMasterUpdates = {check, download, getLatest: () => latest};
   document.addEventListener('DOMContentLoaded', () => {
     check(false);
