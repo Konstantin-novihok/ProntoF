@@ -162,23 +162,28 @@ function toast(msg, err) {
   $('#toasts').append(el);
   setTimeout(() => el.remove(), err ? 6000 : 3000);
 }
-// Загрузка файлов по одному: ошибка одного файла не мешает остальным.
+// Отправляем видео одним HTTP-запросом. Браузер передаёт File напрямую, без создания копий/частей в JS.
 async function uploadVideoForOrder(orderId, file, targetLanguage, uploadId, onProgress) {
   const id = uploadId || ('hm-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)));
-  const chunkSize = 16 * 1024 * 1024;
-  const totalChunks = Math.ceil(file.size / chunkSize);
-  if (!totalChunks) throw new Error('Видеофайл пустой');
-  for (let index = 0; index < totalChunks; index++) {
-    const chunk = file.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize));
-    const response = await fetch(`/orders/${orderId}/video-processing/uploads/${id}/chunks/${index}`, {
-      method: 'PUT', headers: {Authorization: 'Bearer ' + S.token}, body: chunk
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.detail || ('Ошибка загрузки части ' + (index + 1) + ': HTTP ' + response.status));
-    if (onProgress) onProgress(Math.round((index + 1) / totalChunks * 100), index + 1, totalChunks);
-  }
-  return await api('POST', `/orders/${orderId}/video-processing/uploads/${id}/complete`, {
-    filename: file.name, total_chunks: totalChunks, source_language: null, target_language: targetLanguage
+  if (!file || !file.size) throw new Error('Видеофайл пустой');
+  const params = new URLSearchParams({filename: file.name, target_language: targetLanguage});
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/orders/${orderId}/video-processing/uploads/${id}?${params.toString()}`);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + S.token);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100), event.loaded, event.total);
+    };
+    xhr.onload = () => {
+      let result = {};
+      try { result = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(result);
+      else reject(new Error(result.detail || ('Ошибка загрузки видео: HTTP ' + xhr.status)));
+    };
+    xhr.onerror = () => reject(new Error('Соединение прервано во время загрузки видео. Повторите отправку с тем же ID.'));
+    xhr.onabort = () => reject(new Error('Загрузка видео отменена.'));
+    xhr.send(file);
   });
 }
 
