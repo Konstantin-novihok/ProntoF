@@ -21,6 +21,7 @@ _RENDER_LOCK = threading.Lock()
 
 VOICE_BY_LANGUAGE = {
     "ar": "ar_JO-kareem-medium",
+    "bg": "bg_BG-dimitar-medium",
     "cs": "cs_CZ-jirka-medium",
     "de": "de_DE-thorsten-medium",
     "en": "en_US-lessac-medium",
