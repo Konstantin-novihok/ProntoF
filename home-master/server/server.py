@@ -919,7 +919,16 @@ def assign(oid: int, b: AssignIn, user: User = Depends(current_user), db: Sessio
             raise HTTPException(403, "Executor is not verified yet")
         if user.role == HEAD and ex.department_id != user.department_id:
             raise HTTPException(403, "Executor is not in your department")
-        log(db, user, "assign_executor", "order", o.id, f"{o.executor_id}->{ex.id}")
+        from collaboration import OrderParticipant, participant
+        previous_executor_id = o.executor_id
+        if previous_executor_id and previous_executor_id != ex.id:
+            previous = participant(db, o.id, previous_executor_id)
+            if previous:
+                previous.active = False
+                previous.ended_at = now()
+        if not participant(db, o.id, ex.id):
+            db.add(OrderParticipant(order_id=o.id, user_id=ex.id, assigned_by=user.id, method="assigned"))
+        log(db, user, "assign_executor", "order", o.id, f"{previous_executor_id}->{ex.id}")
         o.executor_id = ex.id
         if o.department_id is None:
             o.department_id = ex.department_id
@@ -937,6 +946,9 @@ def accept(oid: int, user: User = Depends(current_user), db: Session = Depends(g
     o = get_order(db, user, oid)
     if o.executor_id not in (None, user.id):
         raise HTTPException(409, "Already taken")
+    from collaboration import OrderParticipant, participant
+    if not participant(db, o.id, user.id):
+        db.add(OrderParticipant(order_id=o.id, user_id=user.id, assigned_by=user.id, method="self_claim"))
     o.executor_id, o.status = user.id, "accepted"
     log(db, user, "accept_order", "order", o.id)
     db.commit()
