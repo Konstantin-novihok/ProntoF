@@ -220,7 +220,7 @@ route('order', async (id) => {
       toast(t('saved')); reload();
     });
   }
-  if (isAdmin()) act('assign_dept', async () => {
+  if (role === 1) act('assign_dept', async () => {
     const ds = await api('GET', '/departments');
     const did = await pick(t('assign_dept'), ds.map((x) => ({label: x.name, value: x.id}))); if (did) await post('assign', {department_id: did}); });
   if (role === 4 && o.status === 'done') act('rate', async () => {
