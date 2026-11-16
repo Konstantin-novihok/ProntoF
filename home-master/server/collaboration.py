@@ -80,6 +80,10 @@ def p_out(p,db):
  return {"id":p.id,"user_id":p.user_id,"name":(u.full_name or u.username) if u else "?","assigned_by":(a.full_name or a.username) if a else "?","method":p.method,"assigned_at":p.assigned_at.isoformat(),"ended_at":p.ended_at.isoformat() if p.ended_at else None,"active":p.active}
 
 class CapabilityIn(BaseModel): capabilities:list[str]=Field(default_factory=list)
+
+@router.get("/me/capabilities")
+def my_capabilities(user:User=Depends(current_user),db:Session=Depends(get_db)):
+ return {"capabilities":sorted(CAPS) if user.role==OWNER else (json.loads((db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id)).capabilities_json or "[]")) if db.scalar(select(TrustedCapability).where(TrustedCapability.user_id==user.id)) else [])}
 @router.put("/trusted-users/{uid}/capabilities")
 def set_caps(uid:int,b:CapabilityIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
  need(user,OWNER); target=db.get(User,uid)
