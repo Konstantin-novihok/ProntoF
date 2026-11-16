@@ -230,6 +230,8 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
     unit_cost=float(item.unit_cost or 0)
    reservation_id=int(m["reservation_id"]) if m.get("reservation_id") else None
    item_id=int(m["item_id"]) if m.get("item_id") else None
+   material_name=str(m["name"]).strip()[:200]
+   material_unit=str(m.get("unit","") or "")[:20]
    if reservation_id:
     from warehouse import Item
     reservation=db.get(Reservation,reservation_id)
@@ -238,8 +240,15 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
     reserved_item=db.get(Item,item_id)
     if not reserved_item:raise ValueError()
     unit_cost=float(reserved_item.unit_cost or 0)
+    material_name=reserved_item.name
+    material_unit=reserved_item.unit
     if qty>reservation_remaining(db,reservation)+1e-9:raise ValueError()
-   normalized_materials.append({"name":str(m["name"]).strip()[:200],"qty":qty,"unit":str(m.get("unit","") or "")[:20],"unit_cost":unit_cost,"item_id":item_id,"reservation_id":reservation_id})
+   elif item_id:
+    from warehouse import Item
+    item=db.get(Item,item_id)
+    if not item:raise ValueError()
+    unit_cost=float(item.unit_cost or 0)
+   normalized_materials.append({"name":material_name,"qty":qty,"unit":material_unit,"unit_cost":unit_cost,"item_id":item_id,"reservation_id":reservation_id})
   except (TypeError,ValueError,KeyError):
    raise HTTPException(400,"Некорректный материал или цена")
  r=db.scalar(select(ExecutorReport).where(ExecutorReport.order_id==oid,ExecutorReport.executor_id==user.id))
