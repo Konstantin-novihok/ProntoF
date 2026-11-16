@@ -261,6 +261,12 @@ async def upload_chunk(upload_id: str, index: int, request: Request, user: User 
     folder.mkdir(parents=True, exist_ok=True)
     part = folder / f"{index}.part"
     temp = folder / f"{index}.tmp"
+    previous_size = part.stat().st_size if part.is_file() else 0
+    staged_size = sum(p.stat().st_size for p in folder.glob("*.part") if p.is_file())
+    if staged_size - previous_size + len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"Превышен лимит {MAX_UPLOAD_GB} ГБ")
+    if shutil.disk_usage(folder).free < len(body) + 64 * 1024 * 1024:
+        raise HTTPException(507, "На диске недостаточно места для следующей части загрузки")
     temp.write_bytes(body)
     temp.replace(part)
     return {"upload_id":upload_id,"index":index,"bytes":len(body)}
@@ -389,9 +395,9 @@ def translate_segment(text: str, source: str, target: str) -> str:
         installed = {lang.code:lang for lang in argos.get_installed_languages()}
         src, dst = installed.get(source), installed.get(target)
         if not src or not dst:
-            return text
+            return ""
         pair = next((x for x in src.translations_from if x.to_lang.code == target), None)
-        return pair.translate(text) if pair else text
+        return pair.translate(text) if pair else ""
     except Exception:
         return text
 
@@ -424,13 +430,23 @@ def process_job(job_id: str):
             raise RuntimeError("Речь не распознана. Проверьте звуковую дорожку.")
         detected = source_language or info.language or "unknown"
         update_job(job_id, progress=68, message="Перевод текста")
+        translation_available = target_language == detected
+        if not translation_available:
+            try:
+                import argostranslate.translate as argos
+                installed = {lang.code:lang for lang in argos.get_installed_languages()}
+                src_lang, dst_lang = installed.get(detected), installed.get(target_language)
+                translation_available = bool(src_lang and dst_lang and any(x.to_lang.code == target_language for x in src_lang.translations_from))
+            except Exception:
+                translation_available = False
         for index, row in enumerate(rows):
-            row["translated"] = translate_segment(row["text"], detected, target_language)
+            row["translated"] = translate_segment(row["text"], detected, target_language) if translation_available else ""
             if index % 20 == 0:
                 update_job(job_id, progress=min(92, 68 + int(index / max(1,len(rows)) * 24)), message=f"Перевод сегмента {index+1}/{len(rows)}")
         transcript = "\n".join(x["text"] for x in rows)
-        translated = "\n".join(x["translated"] for x in rows)
-        update_job(job_id, status="done", progress=100, message="Обработка завершена", source_language=detected, transcript=transcript, translated_text=translated, segments_json=json.dumps(rows, ensure_ascii=False), error="")
+        translated = "\n".join(x["translated"] for x in rows if x["translated"])
+        final_message = "Обработка завершена" if translation_available else f"Распознавание завершено. Не найдена языковая пара Argos {detected} → {target_language}; перевод не выполнен."
+        update_job(job_id, status="done", progress=100, message=final_message, source_language=detected, transcript=transcript, translated_text=translated, segments_json=json.dumps(rows, ensure_ascii=False), error="")
     except Exception as exc:
         update_job(job_id, status="error", progress=0, message="Ошибка обработки", error=str(exc))
 
