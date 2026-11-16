@@ -62,9 +62,11 @@ route('warehouse', async (tab) => {
       h('div',{class:'row'},
         !r.paid && privileged ? h('button',{class:'ghost small',onclick:guard(async()=>{await api('POST',`/warehouse/reservations/${r.id}/confirm-payment`,{});render();})},t('confirm_payment')) : null,
         roleIn(1) ? h('button',{class:'ghost small',onclick:guard(async()=>{
-          const v=await formModal(t('set_expiry'),[{key:'expires_at',label:'set_expiry',type:'datetime-local',value:r.expires_at ? new Date(r.expires_at).toISOString().slice(0,16) : ''}]);
+          const utcDate = r.expires_at ? new Date(r.expires_at.endsWith('Z') ? r.expires_at : r.expires_at + 'Z') : null;
+          const localDate = utcDate ? new Date(utcDate.getTime() - utcDate.getTimezoneOffset()*60000).toISOString().slice(0,16) : '';
+          const v=await formModal(t('set_expiry'),[{key:'expires_at',label:'set_expiry',type:'datetime-local',value:localDate}]);
           if(!v)return;
-          await api('PUT',`/warehouse/reservations/${r.id}/expiry`,{expires_at:v.expires_at || null});render();
+          await api('PUT',`/warehouse/reservations/${r.id}/expiry`,{expires_at:v.expires_at ? new Date(v.expires_at).toISOString() : null});render();
         })},t('set_expiry')) : null)]);
     return h('div',{},head(roleIn(1) ? h('button',{class:'ghost',onclick:guard(async()=>{
       const v=await formModal(t('reservation_period'),[{key:'hours',label:'hours',type:'number',value:24}]);
