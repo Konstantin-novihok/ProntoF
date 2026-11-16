@@ -219,17 +219,17 @@ async def video_translate_existing_media(oid:int,mid:int,target_language:str=Que
     filepath=media_path(media)
     if not os.path.isfile(filepath):
         raise HTTPException(404,"Файл оригинала отсутствует на сервере")
+    upload_id="hm-"+uuid.uuid4().hex
     if media.filename.startswith(f"orders/{oid}/"):
         payload={"filename":media.original,"stored_name":media.filename,"target_language":target_language}
         if source_language:payload["source_language"]=source_language
         response=await _remote("POST",f"/internal/orders/{oid}/videos/import",json=payload)
         result=response.json()
     else:
-        upload_id="hm-"+uuid.uuid4().hex
         params={"filename":media.original,"target_language":target_language}
         if source_language:params["source_language"]=source_language
         result=await _remote_file_stream(f"/internal/orders/{oid}/uploads/{upload_id}",filepath,params)
-    row=OrderVideoJob(order_id=oid,user_id=user.id,upload_id="hm-"+uuid.uuid4().hex,remote_job_id=result["job_id"],
+    row=OrderVideoJob(order_id=oid,user_id=user.id,upload_id=upload_id,remote_job_id=result["job_id"],
                       filename=media.original[:255],target_language=target_language)
     db.add(row)
     log(db,user,"video_processing_start","order",oid,f"source_media={mid}; target={target_language}")
