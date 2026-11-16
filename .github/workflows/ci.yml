@@ -97,6 +97,12 @@ jobs:
               assert (Path(server.ORDER_DATA_DIR) / "orders" / str(oid) / "history").is_dir()
               user_index = Path(server.DATA_DIR) / "users" / f"{ids['e2']}_executor_two" / "orders" / f"{oid}.json"
               assert user_index.is_file(), str(user_index)
+              doc_upload = client.post("/me/documents",headers=headers("e2"),files={"file":("identity.pdf",b"%PDF-1.4\\nCI document","application/pdf")})
+              assert doc_upload.status_code == 200, doc_upload.text
+              with server.SessionLocal() as db:
+                  doc = db.get(server.UserDoc, doc_upload.json()["id"])
+                  assert doc and doc.filename.startswith(f"users/{ids['e2']}_executor_two/documents/")
+                  assert (Path(server.DATA_DIR) / doc.filename).is_file()
 
               reservation = client.post("/warehouse/reservations",headers=headers("e2"),json={"item_id":ids["item"],"order_id":oid,"qty":4})
               assert reservation.status_code == 200, reservation.text
