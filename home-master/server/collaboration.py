@@ -192,15 +192,33 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
  need(user,EXECUTOR);o=get_order(db,user,oid)
  if not participant(db,oid,user.id):raise HTTPException(403,"Вы не назначены на заказ")
  if o.settled_at:raise HTTPException(409,"Заказ рассчитан")
+ normalized_materials=[]
  for m in b.materials:
-  try: valid=isinstance(m,dict) and bool(str(m.get("name","")).strip()) and float(m.get("qty",0))>0
-  except (TypeError,ValueError): valid=False
-  if not valid:raise HTTPException(400,"Некорректный материал")
+  try:
+   if not isinstance(m,dict) or not str(m.get("name","")).strip():raise ValueError()
+   qty=float(m.get("qty",0));unit_cost=float(m.get("unit_cost",0) or 0)
+   if qty<=0 or unit_cost<0:raise ValueError()
+   if m.get("item_id"):
+    from warehouse import Item
+    item=db.get(Item,int(m["item_id"]))
+    if not item:raise ValueError()
+    unit_cost=float(item.unit_cost or 0)
+   normalized_materials.append({"name":str(m["name"]).strip()[:200],"qty":qty,"unit":str(m.get("unit","") or "")[:20],"unit_cost":unit_cost,"item_id":int(m["item_id"]) if m.get("item_id") else None})
+  except (TypeError,ValueError,KeyError):
+   raise HTTPException(400,"Некорректный материал или цена")
  r=db.scalar(select(ExecutorReport).where(ExecutorReport.order_id==oid,ExecutorReport.executor_id==user.id))
  if r is None:r=ExecutorReport(order_id=oid,executor_id=user.id);db.add(r)
  if r.status=="submitted":raise HTTPException(409,"Отправленный отчёт нельзя изменить")
- r.work_done=b.work_done;r.comments=b.comments;r.materials_json=json.dumps(b.materials,ensure_ascii=False)
+ r.work_done=b.work_done;r.comments=b.comments;r.materials_json=json.dumps(normalized_materials,ensure_ascii=False)
  r.labor_hours=b.labor_hours;r.other_cost=b.other_cost;r.status="submitted" if b.submit else "draft";r.updated_at=now()
+ if b.submit:
+  from finance import Expense, r2
+  for material in normalized_materials:
+   amount=r2(material["qty"]*material["unit_cost"])
+   if amount:
+    db.add(Expense(order_id=oid,kind="material",description=material["name"],qty=material["qty"],unit_cost=material["unit_cost"],amount=amount,currency=o.currency or "UAH",item_id=material["item_id"],auto=True,created_by=user.id))
+  if b.other_cost>0:
+   db.add(Expense(order_id=oid,kind="other",description=f"Дополнительные расходы исполнителя #{user.id}",qty=1,unit_cost=r2(b.other_cost),amount=r2(b.other_cost),currency=o.currency or "UAH",auto=True,created_by=user.id))
  log(db,user,"executor_report_"+r.status,"order",oid);db.commit()
  return report_out(r,db)
 
