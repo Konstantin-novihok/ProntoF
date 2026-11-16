@@ -8,11 +8,12 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import ForeignKey, Integer, String, DateTime, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from server import (ADMIN, CLIENT, EXECUTOR, HEAD, OWNER, STAFF, Base, Media, MEDIA_DIR, User, current_user, media_path,
+from server import (ADMIN, CLIENT, EXECUTOR, HEAD, OWNER, STAFF, Base, Media, MEDIA_DIR, ORDER_DATA_DIR, User, current_user, media_path,
                     get_db, get_order, log, need, now)
 
 router = APIRouter()
@@ -258,6 +259,36 @@ async def video_retranslate_existing_job(oid:int,job_id:str,target_language:str=
     db.commit()
     return {"job_id":result["job_id"],"order_id":oid,"status":result.get("status","queued"),
             "filename":original.filename}
+
+
+@router.get("/orders/{oid}/video-processing/{job_id}/source")
+async def video_original_source(oid:int,job_id:str,user:User=Depends(current_user),db:Session=Depends(get_db)):
+    _check_order(oid,user,db)
+    row=db.scalar(select(OrderVideoJob).where(OrderVideoJob.order_id==oid,OrderVideoJob.remote_job_id==job_id))
+    if not row:raise HTTPException(404,"Исходное видео не найдено")
+    response=await _remote("GET",f"/internal/jobs/{job_id}")
+    item=response.json()
+    if item.get("order_id")!=oid:raise HTTPException(404,"Видео не относится к этому заказу")
+    stored_name=item.get("stored_name") or ""
+    if stored_name.startswith(f"orders/{oid}/"):
+        path=os.path.abspath(os.path.join(ORDER_DATA_DIR,stored_name))
+        root=os.path.abspath(os.path.join(ORDER_DATA_DIR,"orders",str(oid)))
+        if os.path.commonpath([root,path])==root and os.path.isfile(path):
+            import mimetypes
+            mime=mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
+            return FileResponse(path,filename=row.filename,media_type=mime,content_disposition_type="inline")
+    video_id=item.get("video_id")
+    if not video_id:raise HTTPException(404,"Оригинал видео недоступен")
+    async def stream():
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET",PRONTOF_API_URL+f"/internal/videos/{video_id}/source",headers=_headers()) as remote:
+                if remote.status_code>=400:
+                    raise HTTPException(remote.status_code,"Не удалось получить оригинал видео")
+                async for chunk in remote.aiter_bytes():
+                    yield chunk
+    import mimetypes
+    mime=mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
+    return StreamingResponse(stream(),media_type=mime,headers={"Content-Disposition":f'inline; filename="{row.filename.replace(chr(34), "")}"'})
 
 
 @router.get("/orders/{oid}/video-processing")
