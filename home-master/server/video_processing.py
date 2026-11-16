@@ -5,7 +5,7 @@ import datetime as dt
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import ForeignKey, Integer, String, DateTime, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -63,9 +63,72 @@ async def _remote(method: str, path: str, **kwargs):
     return response
 
 
+
+async def _remote_stream(path: str, request: Request, params: dict):
+    """Proxy the incoming request body to Worker without buffering the video in RAM."""
+    _ensure_config()
+
+    async def body_stream():
+        async for chunk in request.stream():
+            if chunk:
+                yield chunk
+
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "POST", PRONTOF_API_URL + path, headers={**_headers(), "Content-Type": "application/octet-stream"},
+                params=params, content=body_stream()
+            ) as response:
+                await response.aread()
+                if response.status_code >= 400:
+                    try:
+                        detail = response.json().get("detail", response.text[:500])
+                    except Exception:
+                        detail = response.text[:500]
+                    raise HTTPException(response.status_code, detail)
+                return response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Сервис обработки видео недоступен: {exc.__class__.__name__}")
+
+
 def _check_order(oid: int, user: User, db: Session):
     need(user, OWNER, ADMIN, HEAD, EXECUTOR, CLIENT, STAFF)
     return get_order(db, user, oid)
+
+
+@router.post("/orders/{oid}/video-processing/uploads/{upload_id}")
+async def video_upload_single(oid: int, upload_id: str, request: Request,
+                              filename: str = Query(..., min_length=1, max_length=255),
+                              target_language: str = Query(..., min_length=2, max_length=8),
+                              source_language: Optional[str] = Query(default=None),
+                              user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _check_order(oid, user, db)
+    if not re.fullmatch(r"hm-[A-Za-z0-9-]{8,60}", upload_id):
+        raise HTTPException(400, "Некорректный ID загрузки")
+    existing = db.scalar(select(OrderVideoJob).where(OrderVideoJob.upload_id == upload_id))
+    if existing:
+        if existing.order_id != oid or existing.user_id != user.id:
+            raise HTTPException(409, "ID загрузки уже использован")
+        return {"job_id": existing.remote_job_id, "order_id": oid, "status": "queued", "filename": existing.filename}
+    params = {"filename": filename, "target_language": target_language}
+    if source_language:
+        params["source_language"] = source_language
+    result = await _remote_stream(f"/internal/orders/{oid}/uploads/{upload_id}", request, params)
+    row = OrderVideoJob(order_id=oid, user_id=user.id, upload_id=upload_id,
+                        remote_job_id=result["job_id"], filename=filename[:255],
+                        target_language=target_language)
+    db.add(row)
+    log(db, user, "video_processing_start", "order", oid, filename[:200])
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        existing = db.scalar(select(OrderVideoJob).where(OrderVideoJob.upload_id == upload_id))
+        if existing and existing.order_id == oid and existing.user_id == user.id:
+            return {"job_id": existing.remote_job_id, "order_id": oid, "status": "queued", "filename": existing.filename}
+        raise HTTPException(409, "Не удалось сохранить связь видео с заказом; повторите отправку с тем же ID")
+    return {"job_id": result["job_id"], "order_id": oid, "status": result.get("status", "queued"),
+            "filename": filename, "size_bytes": result.get("size_bytes")}
 
 
 @router.put("/orders/{oid}/video-processing/uploads/{upload_id}/chunks/{index}")
