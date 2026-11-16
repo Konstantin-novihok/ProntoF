@@ -139,8 +139,26 @@ def money(o: Order, ex: Optional[User], totals: dict, settled_pay: Optional[floa
 
 def order_finance(db: Session, o: Order) -> dict:
     ex = db.get(User, o.executor_id) if o.executor_id else None
-    paid = db.scalar(select(OrderPay.amount).where(OrderPay.order_id == o.id))
-    return money(o, ex, expense_totals(db, o.id), paid)
+    paid = db.scalar(select(func.coalesce(func.sum(OrderPay.amount), 0.0)).where(OrderPay.order_id == o.id)) if o.settled_at else None
+    totals = expense_totals(db, o.id)
+    if paid is not None:
+        return money(o, ex, totals, paid)
+    try:
+        from collaboration import ExecutorReport
+        reports = db.scalars(select(ExecutorReport).where(ExecutorReport.order_id == o.id, ExecutorReport.status == "submitted")).all()
+    except Exception:
+        reports = []
+    if reports:
+        expense_total = sum(totals.values())
+        pay = 0.0
+        for report in reports:
+            worker = db.get(User, report.executor_id)
+            if worker:
+                pay += calc_pay(worker.rate_type, worker.rate_value, report.labor_hours, o.price, expense_total)[0]
+        result = money(o, None, totals, r2(pay))
+        result["labor_hours"] = r2(sum(float(x.labor_hours or 0) for x in reports))
+        return result
+    return money(o, ex, totals)
 
 
 def can_manage(user: User, o: Order) -> bool:
@@ -166,7 +184,20 @@ def get_order_finance(oid: int, user: User = Depends(current_user), db: Session 
             out["client_balance"] = balance_of(db, o.client_id)
         return out
     if user.role == EXECUTOR:     # исполнитель видит свои расходы и свою оплату, но не цену и маржу
-        return dict(expenses=exps, pay=full["pay"], labor_hours=full["labor_hours"], km=full["km"], settled=full["settled"])
+        own_pay = 0.0
+        if o.settled_at:
+            own_pay = r2(db.scalar(select(func.coalesce(func.sum(OrderPay.amount), 0.0)).where(OrderPay.order_id == oid, OrderPay.user_id == user.id)) or 0)
+        else:
+            try:
+                from collaboration import ExecutorReport
+                report = db.scalar(select(ExecutorReport).where(ExecutorReport.order_id == oid, ExecutorReport.executor_id == user.id, ExecutorReport.status == "submitted"))
+            except Exception:
+                report = None
+            if report:
+                own_pay = calc_pay(user.rate_type, user.rate_value, report.labor_hours, o.price, sum(expense_totals(db, oid).values()))[0]
+            elif o.executor_id == user.id:
+                own_pay = full["pay"]
+        return dict(expenses=exps, pay=own_pay, labor_hours=full["labor_hours"], km=full["km"], settled=full["settled"])
     if user.role == CLIENT:       # заказчик видит только цену и факт расчёта
         return dict(price=full["price"], settled=full["settled"])
     raise HTTPException(403, "Forbidden")
@@ -261,7 +292,22 @@ def settle(oid: int, user: User = Depends(current_user), db: Session = Depends(g
                            note=f"Order #{o.id}", created_by=user.id))
         new_balance = r2(bal - o.price)
     pay = None
-    if ex is not None:
+    try:
+        from collaboration import ExecutorReport
+        reports = db.scalars(select(ExecutorReport).where(ExecutorReport.order_id == o.id, ExecutorReport.status == "submitted")).all()
+    except Exception:
+        reports = []
+    if reports:
+        pay = 0.0
+        for report in reports:
+            worker = db.get(User, report.executor_id)
+            if not worker:
+                continue
+            amount, basis = calc_pay(worker.rate_type, worker.rate_value, report.labor_hours, o.price, sum(totals.values()))
+            db.add(OrderPay(order_id=o.id, user_id=worker.id, amount=amount, basis=basis, currency=currency_code(o.currency)))
+            pay += amount
+        pay = r2(pay)
+    elif ex is not None:
         amount, basis = calc_pay(ex.rate_type, ex.rate_value, o.labor_hours, o.price, sum(totals.values()))
         db.add(OrderPay(order_id=o.id, user_id=ex.id, amount=amount, basis=basis, currency=currency_code(o.currency)))
         pay = amount
