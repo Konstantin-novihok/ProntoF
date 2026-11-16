@@ -215,10 +215,13 @@ def _render_translated_video_locked(job_id: str):
         video_args = ["-c:v", "copy"] if video_codec in ("h264", "hevc", "av1") else [
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"
         ]
+        metadata_comment = f"AI-generated synthetic speech; Piper voice model: {voice_id}"
+        if target_language == "lt":
+            metadata_comment += "; attribution: Ingutė (lt_LT-ingute-medium), Robertas & Claude"
         command = ["ffmpeg", "-y", "-i", str(source_path), "-i", str(voice_track),
                    "-map", "0:v:0", *audio_args, *video_args,
                    "-c:a", "aac", "-b:a", "160k", "-map_metadata", "0",
-                   "-metadata", "comment=Contains AI-generated synthetic speech (Piper)",
+                   "-metadata", f"comment={metadata_comment}",
                    "-metadata:s:a:0", "title=AI-generated translated speech mixed with original audio",
                    "-movflags", "+faststart", "-shortest", str(output_path)]
         _run(command)
