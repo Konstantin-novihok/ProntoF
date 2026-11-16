@@ -295,7 +295,7 @@ route('order', async (id) => {
         j.render_status === 'ready' ? h('div', {},
           h('b', {}, t('video_render_ready')),
           h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/render/preview`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
-          h('a', {class:'btnlink', href:withToken(`/orders/${id}/video-processing/${j.job_id}/render/download`), download:j.render_filename || 'translated.mp4'}, '⬇ ' + t('video_download'))
+          h('a', {class:'btnlink', href:withToken(`/orders/${id}/video-processing/${j.job_id}/render/download`) + (window.AndroidBridge ? '&client=android' : ''), download:j.render_filename || 'translated.mp4'}, '⬇ ' + t('video_download'))
         ) : ['queued','running'].includes(j.render_status) ? h('p', {class:'muted'}, t('video_rendering')) :
           h('div', {}, j.render_status === 'failed' ? h('p', {class:'toast err'}, j.render_error || t('video_render_failed')) : null,
             h('button', {class:'go', onclick:guard(async () => { await api('POST', `/orders/${id}/video-processing/${j.job_id}/render`, {}); toast(t('video_render_started')); reload(); })}, t('video_render')))
