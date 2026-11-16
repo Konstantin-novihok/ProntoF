@@ -1,7 +1,7 @@
 """Совместные исполнители, персональные отчёты и ручные резервы склада."""
 import datetime as dt, json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, select, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -160,7 +160,23 @@ class ReportIn(BaseModel):
 
 def report_out(r,db):
  u=db.get(User,r.executor_id)
- return {"id":r.id,"executor_id":r.executor_id,"executor_name":(u.full_name or u.username) if u else "?","work_done":r.work_done,"comments":r.comments,"materials":json.loads(r.materials_json or "[]"),"labor_hours":r.labor_hours,"other_cost":r.other_cost,"status":r.status,"updated_at":r.updated_at.isoformat()}
+ from storage import StoredFile, file_out
+ files=[file_out(f,db) for f in db.scalars(select(StoredFile).where(StoredFile.source=="report",StoredFile.ref_id==r.id).order_by(StoredFile.id))]
+ return {"id":r.id,"executor_id":r.executor_id,"executor_name":(u.full_name or u.username) if u else "?","work_done":r.work_done,"comments":r.comments,"materials":json.loads(r.materials_json or "[]"),"labor_hours":r.labor_hours,"other_cost":r.other_cost,"status":r.status,"updated_at":r.updated_at.isoformat(),"files":files}
+
+@router.post("/orders/{oid}/reports/me/files")
+async def upload_report_file(oid:int,file:UploadFile=File(...),user:User=Depends(current_user),db:Session=Depends(get_db)):
+ need(user,EXECUTOR);get_order(db,user,oid)
+ if not participant(db,oid,user.id):raise HTTPException(403,"Вы не участник заказа")
+ r=db.scalar(select(ExecutorReport).where(ExecutorReport.order_id==oid,ExecutorReport.executor_id==user.id))
+ if r is None:
+  r=ExecutorReport(order_id=oid,executor_id=user.id);db.add(r);db.flush()
+ if r.status=="submitted":raise HTTPException(409,"Отправленный отчёт нельзя изменить")
+ from storage import file_out, store_upload
+ stored=await store_upload(db,file,user,"report",r.id)
+ log(db,user,"executor_report_file","order",oid,f"report={r.id}; file={stored.original}")
+ db.commit()
+ return file_out(stored,db)
 
 @router.get("/orders/{oid}/reports")
 def get_reports(oid:int,user:User=Depends(current_user),db:Session=Depends(get_db)):
