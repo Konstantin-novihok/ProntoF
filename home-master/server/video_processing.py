@@ -125,6 +125,13 @@ async def _remote_file_stream(path: str, filepath: str, params: dict):
         raise HTTPException(502, f"Сервис обработки видео недоступен: {exc.__class__.__name__}")
 
 
+def _require_upload_participant(oid:int,user:User,db:Session):
+    if user.role==EXECUTOR:
+        from collaboration import participant
+        if not participant(db,oid,user.id):
+            raise HTTPException(403,"Загружать новое видео могут только исполнители заказа")
+
+
 def _check_order(oid: int, user: User, db: Session):
     need(user, OWNER, ADMIN, HEAD, EXECUTOR, CLIENT, STAFF)
     return get_order(db, user, oid)
@@ -137,6 +144,7 @@ async def video_upload_single(oid: int, upload_id: str, request: Request,
                               source_language: Optional[str] = Query(default=None),
                               user: User = Depends(current_user), db: Session = Depends(get_db)):
     _check_order(oid, user, db)
+    _require_upload_participant(oid,user,db)
     if not re.fullmatch(r"hm-[A-Za-z0-9-]{8,60}", upload_id):
         raise HTTPException(400, "Некорректный ID загрузки")
     existing = db.scalar(select(OrderVideoJob).where(OrderVideoJob.upload_id == upload_id))
@@ -169,6 +177,7 @@ async def video_upload_single(oid: int, upload_id: str, request: Request,
 async def video_upload_chunk(oid: int, upload_id: str, index: int, request: Request,
                              user: User = Depends(current_user), db: Session = Depends(get_db)):
     _check_order(oid, user, db)
+    _require_upload_participant(oid,user,db)
     if not re.fullmatch(r"hm-[A-Za-z0-9-]{8,60}", upload_id) or index < 0 or index > 100000:
         raise HTTPException(400, "Некорректный ID загрузки или номер части")
     body = await request.body()
@@ -182,6 +191,7 @@ async def video_upload_chunk(oid: int, upload_id: str, index: int, request: Requ
 async def video_upload_complete(oid: int, upload_id: str, data: VideoUploadComplete,
                                 user: User = Depends(current_user), db: Session = Depends(get_db)):
     _check_order(oid, user, db)
+    _require_upload_participant(oid,user,db)
     if not re.fullmatch(r"hm-[A-Za-z0-9-]{8,60}", upload_id):
         raise HTTPException(400, "Некорректный ID загрузки")
     existing = db.scalar(select(OrderVideoJob).where(OrderVideoJob.upload_id == upload_id))
