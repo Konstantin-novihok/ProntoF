@@ -172,7 +172,7 @@ jobs:
           sudo apt-get install -y ffmpeg
           python -m pip install -r server/requirements.txt
           mkdir -p "$RUNNER_TEMP/prontof-worker-smoke" "$RUNNER_TEMP/prontof-piper-voices"
-          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" PIPER_VOICE_DIR="$RUNNER_TEMP/prontof-piper-voices" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
+          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" PIPER_VOICE_DIR="$RUNNER_TEMP/prontof-piper-voices" INTERNAL_API_KEY="ci-internal-key" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
           import json, subprocess, uuid
           from pathlib import Path
           import app
@@ -216,6 +216,17 @@ jobs:
                                                "-of","json",str(rendered)],text=True)
               kinds = {s["codec_type"] for s in json.loads(probe)["streams"]}
               assert {"video","audio"} <= kinds
+          from fastapi.testclient import TestClient
+          client = TestClient(app.app)
+          internal_headers = {"x-prontof-internal-key":"ci-internal-key"}
+          downloaded = client.get(f"/internal/jobs/{job_id}/render/download",headers=internal_headers)
+          assert downloaded.status_code == 200 and len(downloaded.content) > 1024
+          assert rendered.is_file(), "download endpoint must not delete before acknowledgment"
+          acknowledged = client.post(f"/internal/jobs/{job_id}/render/ack",headers=internal_headers)
+          assert acknowledged.status_code == 200 and acknowledged.json()["status"] == "delivered"
+          assert not rendered.exists(), "acknowledgment must delete the temporary MP4"
+          with app.SessionLocal() as db:
+              assert db.get(app.RenderedOutput,job_id).status == "delivered"
           # Validate the two less common language models as well; Lithuanian needs the
           # newer upstream phonemizer implementation pinned in requirements.txt.
           import io, os, wave
