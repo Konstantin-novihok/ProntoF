@@ -110,7 +110,7 @@ def item_out(db: Session, it: Item, viewer: User):
     return dict(id=it.id, sku=it.sku, name=it.name, kind=it.kind, unit=it.unit, unit_cost=it.unit_cost, min_qty=it.min_qty,
                 description=it.description, manufacturer=it.manufacturer, package_volume=it.package_volume, package_unit=it.package_unit, active=it.active, in_warehouse=in_wh, with_staff=with_staff,
                 total=in_wh + with_staff, reserved=reserved, available=available, mine=qty_of(db, it.id, viewer.id),
-                low=bool(it.min_qty and available < it.min_qty), thumb=thumb)
+                low=bool(it.min_qty and available < it.min_qty), thumb=thumb if viewer.role in STAFF_ROLES else None)
 
 
 class ItemIn(BaseModel):
@@ -128,7 +128,6 @@ class ItemIn(BaseModel):
 
 @router.get("/warehouse/items")
 def items(q: str = "", user: User = Depends(current_user), db: Session = Depends(get_db)):
-    need(user, *STAFF_ROLES)
     from collaboration import expire
     expire(db)
     stmt = select(Item).where(Item.active).order_by(Item.name)
@@ -170,16 +169,19 @@ def edit_item(iid: int, b: ItemIn, user: User = Depends(current_user), db: Sessi
 
 @router.get("/warehouse/items/{iid}")
 def item_detail(iid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    need(user, *STAFF_ROLES)
     it = db.get(Item, iid)
     if not it:
         raise HTTPException(404)
     from collaboration import expire
     expire(db, iid)
     db.commit()
-    files = [file_out(f, db) for f in db.scalars(select(StoredFile).where(StoredFile.source == "warehouse", StoredFile.ref_id == iid).order_by(StoredFile.id))]
-    moves = db.scalars(select(Move).where(Move.item_id == iid).order_by(Move.id.desc()).limit(30)).all()
-    return dict(item=item_out(db, it, user), holders=holders_of(db, iid), files=files, moves=[move_out(db, m) for m in moves])
+    if user.role in STAFF_ROLES:
+        files = [file_out(f, db) for f in db.scalars(select(StoredFile).where(StoredFile.source == "warehouse", StoredFile.ref_id == iid).order_by(StoredFile.id))]
+        moves = db.scalars(select(Move).where(Move.item_id == iid).order_by(Move.id.desc()).limit(30)).all()
+        holders, moves_out = holders_of(db, iid), [move_out(db, m) for m in moves]
+    else:
+        files, holders, moves_out = [], [], []
+    return dict(item=item_out(db, it, user), holders=holders, files=files, moves=moves_out)
 
 
 @router.post("/warehouse/items/{iid}/files")
