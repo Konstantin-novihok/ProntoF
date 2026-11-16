@@ -472,7 +472,7 @@
   "other_cost": "Прочие расходы",
   "executor_report": "Мой отчёт о работе",
   "work_done": "Выполненные работы",
-  "report_materials_json": "Материалы (JSON: [{\"name\":\"Деталь\",\"qty\":1,\"unit\":\"шт\"}])",
+  "report_materials_json": "Материалы в JSON, например [{\"name\":\"Деталь\",\"qty\":1,\"unit\":\"шт\",\"unit_cost\":12.5}] (необязательный item_id подставит цену склада)",
   "submit_report": "Отправить отчёт",
   "reserve_material": "Зарезервировать материал",
   "no_available_stock": "Нет доступного остатка",
@@ -489,5 +489,6 @@
   "save": "Сохранить",
   "reservation_period": "Срок резерва (часов)",
   "reserved_by": "Зарезервировал",
-  "set_expiry": "Установить точное время окончания"
+  "set_expiry": "Установить точное время окончания",
+  "report_attach_files": "Прикрепить фото/видео"
 }
