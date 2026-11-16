@@ -481,5 +481,10 @@
   "reservation_expires": "Спливає",
   "confirm_payment": "Підтвердити оплату",
   "reserved": "У резерві",
-  "available": "Доступно"
+  "available": "Доступно",
+  "trusted_permissions": "Права довіреного працівника",
+  "cap_order_assign": "Призначати та перепризначати виконавців",
+  "cap_reservation_view": "Бачити, хто зарезервував товар",
+  "cap_payment_confirm": "Підтверджувати оплату резерву",
+  "save": "Зберегти"
 }
