@@ -51,7 +51,7 @@ class Reservation(Base):
  order_id:Mapped[int]=mapped_column(ForeignKey("orders.id"),index=True)
  user_id:Mapped[int]=mapped_column(ForeignKey("users.id"),index=True)
  qty:Mapped[float]=mapped_column(Float)
- unit_cost:Mapped[float]=mapped_column(Float,default=0)
+ unit_cost:Mapped[Optional[float]]=mapped_column(Float,nullable=True,default=None)
  status:Mapped[str]=mapped_column(String(12),default="active")
  paid_at:Mapped[Optional[dt.datetime]]=mapped_column(DateTime,nullable=True)
  confirmed_by:Mapped[Optional[int]]=mapped_column(ForeignKey("users.id"),nullable=True)
@@ -240,7 +240,7 @@ def put_report(oid:int,b:ReportIn,user:User=Depends(current_user),db:Session=Dep
     item_id=reservation.item_id
     reserved_item=db.get(Item,item_id)
     if not reserved_item:raise ValueError()
-    unit_cost=float(reservation.unit_cost or reserved_item.unit_cost or 0)
+    unit_cost=float(reservation.unit_cost if reservation.unit_cost is not None else (reserved_item.unit_cost or 0))
     material_name=reserved_item.name
     material_unit=reserved_item.unit
     if qty>reservation_remaining(db,reservation)+1e-9:raise ValueError()
