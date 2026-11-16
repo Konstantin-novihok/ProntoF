@@ -495,5 +495,17 @@
   "package_volume": "Об’єм упаковки/тари",
   "package_unit": "Одиниця об’єму тари",
   "translate_video": "Перекласти оригінальне відео",
-  "video_source": "Вихідне відео"
+  "video_source": "Вихідне відео",
+  "update_available": "Доступне оновлення Home Master {version}",
+  "update_installed": "Встановлена версія {version}. Оновлення завантажено на ваш сервер.",
+  "update_benefit": "Це зробить користування застосунком комфортнішим і дасть нам змогу виконувати роботу швидше та якісніше.",
+  "update_download_install": "Завантажити й установити",
+  "update_later": "Пізніше",
+  "update_settings_title": "Оновлення застосунку",
+  "update_settings_hint": "Перевірити нову версію Home Master і завантажити APK.",
+  "update_check": "Перевірити оновлення",
+  "update_download": "Завантажити доступне оновлення",
+  "update_none": "Нових опублікованих оновлень немає.",
+  "update_module_missing": "Модуль оновлень ще не завантажено.",
+  "update_check_error": "Не вдалося перевірити оновлення: {error}"
 }
