@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pwdlib import PasswordHash
@@ -104,6 +104,19 @@ class Job(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc).replace(tzinfo=None))
     order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+
+class RenderedOutput(Base):
+    __tablename__ = "rendered_outputs"
+    job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    file_path: Mapped[str] = mapped_column(Text, default="")
+    file_name: Mapped[str] = mapped_column(String(255), default="")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc).replace(tzinfo=None))
+    expires_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
+    delivered_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime, nullable=True)
+
 
 class InternalUploadReceipt(Base):
     __tablename__ = "internal_upload_receipts"
@@ -715,7 +728,110 @@ def internal_job_detail(job_id: str, request: Request, db: Session = Depends(db_
             "filename": video.filename if video else "", "stored_name": video.stored_name if video else "", "status": job.status,
             "progress": job.progress, "message": job.message, "error": job.error,
             "source_language": job.source_language, "target_language": job.target_language,
-            "transcript": job.transcript, "translated_text": job.translated_text}
+            "transcript": job.transcript, "translated_text": job.translated_text,
+            "render_status": (db.get(RenderedOutput, job.id).status if db.get(RenderedOutput, job.id) else "not_started"),
+            "render_error": (db.get(RenderedOutput, job.id).error if db.get(RenderedOutput, job.id) else ""),
+            "render_filename": (db.get(RenderedOutput, job.id).file_name if db.get(RenderedOutput, job.id) else ""),
+            "render_size_bytes": (db.get(RenderedOutput, job.id).size_bytes if db.get(RenderedOutput, job.id) else 0)}
+
+
+
+def _render_out(row: RenderedOutput):
+    return {"job_id": row.job_id, "status": row.status, "filename": row.file_name,
+            "size_bytes": row.size_bytes, "error": row.error,
+            "expires_at": row.expires_at.isoformat() + "Z" if row.expires_at else None}
+
+
+@app.post("/internal/jobs/{job_id}/render", status_code=202)
+def internal_render_start(job_id: str, background_tasks: BackgroundTasks,
+                          request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Задача не найдена")
+    if job.status != "done":
+        raise HTTPException(409, "Сначала дождитесь завершения распознавания и перевода")
+    segments = json.loads(job.segments_json or "[]")
+    if not segments or not any(str(x.get("translated", "")).strip() for x in segments):
+        raise HTTPException(409, "Нет переведённых сегментов для озвучивания")
+    from rendering import voice_for_language
+    if not voice_for_language(job.target_language):
+        raise HTTPException(422, f"Для языка {job.target_language} пока нет совместимой модели Piper. Текст и субтитры остаются доступны.")
+    row = db.get(RenderedOutput, job_id)
+    if row and row.status == "ready" and row.file_path and Path(row.file_path).is_file():
+        return _render_out(row)
+    if row and row.status in ("queued", "running"):
+        return _render_out(row)
+    if row is None:
+        row = RenderedOutput(job_id=job_id, status="queued")
+        db.add(row)
+    else:
+        row.status = "queued"
+        row.file_path = ""
+        row.file_name = ""
+        row.size_bytes = 0
+        row.error = ""
+        row.expires_at = None
+        row.delivered_at = None
+    db.commit()
+    background_tasks.add_task(__import__("rendering").render_translated_video, job_id)
+    return _render_out(row)
+
+
+@app.get("/internal/jobs/{job_id}/render")
+def internal_render_status(job_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    if not db.get(Job, job_id):
+        raise HTTPException(404, "Задача не найдена")
+    row = db.get(RenderedOutput, job_id)
+    if not row:
+        return {"job_id": job_id, "status": "not_started", "filename": "", "size_bytes": 0, "error": ""}
+    if row.status == "ready" and row.expires_at and row.expires_at <= dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):
+        if row.file_path:
+            Path(row.file_path).unlink(missing_ok=True)
+        row.status = "expired"
+        row.file_path = ""
+        row.size_bytes = 0
+        db.commit()
+    return _render_out(row)
+
+
+@app.get("/internal/jobs/{job_id}/render/preview")
+def internal_render_preview(job_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    row = db.get(RenderedOutput, job_id)
+    if not row or row.status != "ready" or not row.file_path or not Path(row.file_path).is_file():
+        raise HTTPException(404, "Готовое видео пока недоступно")
+    return FileResponse(row.file_path, media_type="video/mp4", filename=row.file_name,
+                        content_disposition_type="inline",
+                        headers={"Cache-Control": "private, no-store", "Accept-Ranges": "bytes"})
+
+
+@app.get("/internal/jobs/{job_id}/render/download")
+def internal_render_download(job_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    row = db.get(RenderedOutput, job_id)
+    if not row or row.status != "ready" or not row.file_path or not Path(row.file_path).is_file():
+        raise HTTPException(404, "Готовое видео уже передано или срок хранения истёк")
+    return FileResponse(row.file_path, media_type="video/mp4", filename=row.file_name,
+                        content_disposition_type="attachment",
+                        headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/internal/jobs/{job_id}/render/ack")
+def internal_render_ack(job_id: str, request: Request, db: Session = Depends(db_session)):
+    require_internal(request)
+    row = db.get(RenderedOutput, job_id)
+    if not row or row.status != "ready":
+        raise HTTPException(409, "Нет готового результата для подтверждения передачи")
+    if row.file_path:
+        Path(row.file_path).unlink(missing_ok=True)
+    row.status = "delivered"
+    row.file_path = ""
+    row.size_bytes = 0
+    row.delivered_at = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"job_id": job_id, "status": "delivered", "deleted": True}
 
 
 @app.get("/api/jobs")
