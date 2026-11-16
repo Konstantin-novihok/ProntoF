@@ -43,11 +43,13 @@ async function moveDialog(item, kind, reload) {
 }
 async function itemForm(item) {
   const v = await formModal(item ? t('edit') : t('add_item'), [{key: 'name', label: 'name', value: item && item.name}, {key: 'sku', label: 'sku', value: item && item.sku},
+    {key: 'manufacturer', label: 'manufacturer', value: item && item.manufacturer},
     {key: 'kind', label: 'kind', type: 'select', value: item ? item.kind : 'material', options: [{value: 'material', label: t('wh_material')}, {value: 'equipment', label: t('wh_equipment')}]},
-    {key: 'unit', label: 'unit', value: item ? item.unit : 'pcs'}, {key: 'unit_cost', label: 'price', type: 'number', value: item ? item.unit_cost : 0},
+    {key: 'unit', label: 'unit', value: item ? item.unit : 'pcs'},
+    {key: 'package_volume', label: 'package_volume', type: 'number', value: item ? item.package_volume : 0}, {key: 'package_unit', label: 'package_unit', value: item ? item.package_unit : ''}, {key: 'unit_cost', label: 'price', type: 'number', value: item ? item.unit_cost : 0},
     {key: 'min_qty', label: 'min_qty', type: 'number', value: item ? item.min_qty : 0}, {key: 'description', label: 'description', type: 'textarea', value: item && item.description}]);
   if (!v) return null;
-  const body = {...v, unit_cost: parseFloat(v.unit_cost) || 0, min_qty: parseFloat(v.min_qty) || 0};
+  const body = {...v, package_volume: parseFloat(v.package_volume) || 0, unit_cost: parseFloat(v.unit_cost) || 0, min_qty: parseFloat(v.min_qty) || 0};
   return item ? api('PATCH', '/warehouse/items/' + item.id, body) : api('POST', '/warehouse/items', body);
 }
 
@@ -106,7 +108,7 @@ route('warehouse', async (tab) => {
     list.replaceChildren(...(rows.length ? rows.map((i) => h('div', {class: 'card click itemcard', onclick: () => { location.hash = '#/item/' + i.id; }},
       i.thumb ? h('img', {src: fileUrl(i.thumb), alt: ''}) : h('div', {class: 'thumbph'}, i.kind === 'equipment' ? '🔧' : '📦'),
       h('div', {class: 'grow'}, h('div', {class: 'row'}, h('b', {class: 'grow'}, i.name), h('span', {class: 'badge'}, t('wh_' + i.kind)), i.low ? h('span', {class: 'badge st-cancelled', style: 'background:var(--bad);color:#fff'}, t('low_stock')) : null),
-        h('div', {class: 'muted small'}, [i.sku, `${t('in_warehouse')}: ${num(i.in_warehouse)} ${i.unit}`, `${t('reserved')}: ${num(i.reserved || 0)} ${i.unit}`, `${t('available')}: ${num(i.available ?? i.in_warehouse)} ${i.unit}`, `${t('with_staff')}: ${num(i.with_staff)}`, i.mine ? `${t('on_me')}: ${num(i.mine)}` : null].filter(Boolean).join(' · '))))) : [h('p', {class: 'muted'}, t('no_data'))]));
+        h('div', {class: 'muted small'}, [i.sku, i.manufacturer, `${t('in_warehouse')}: ${num(i.in_warehouse)} ${i.unit}`, `${t('reserved')}: ${num(i.reserved || 0)} ${i.unit}`, `${t('available')}: ${num(i.available ?? i.in_warehouse)} ${i.unit}`, `${t('with_staff')}: ${num(i.with_staff)}`, i.mine ? `${t('on_me')}: ${num(i.mine)}` : null].filter(Boolean).join(' · '))))) : [h('p', {class: 'muted'}, t('no_data'))]));
   };
   q.oninput = draw; draw();
   return h('div', {}, head(q), tabs, list);
@@ -135,7 +137,7 @@ route('item', async (id) => {
         h('button', {class: 'ghost small', onclick: guard(() => saveUrl(url, f.original, f.mime))}, t('save_as'))));
   });
   return h('div', {}, h('div', {class: 'row'}, back('#/warehouse'), h('h1', {class: 'grow'}, it.name)),
-    h('div', {class: 'card'}, kvList([[t('sku'), it.sku || '-'], [t('kind'), t('wh_' + it.kind)], [t('in_warehouse'), `${num(it.in_warehouse)} ${it.unit}`], [t('reserved'), `${num(it.reserved || 0)} ${it.unit}`], [t('available'), `${num(it.available ?? it.in_warehouse)} ${it.unit}`], [t('with_staff'), `${num(it.with_staff)} ${it.unit}`],
+    h('div', {class: 'card'}, kvList([[t('sku'), it.sku || '-'], [t('manufacturer'), it.manufacturer || '-'], [t('package_volume'), it.package_volume ? `${num(it.package_volume)} ${it.package_unit || ''}` : '-'], [t('kind'), t('wh_' + it.kind)], [t('in_warehouse'), `${num(it.in_warehouse)} ${it.unit}`], [t('reserved'), `${num(it.reserved || 0)} ${it.unit}`], [t('available'), `${num(it.available ?? it.in_warehouse)} ${it.unit}`], [t('with_staff'), `${num(it.with_staff)} ${it.unit}`],
       [t('on_me'), `${num(it.mine)} ${it.unit}`], isManager() ? [t('price'), money(it.unit_cost)] : null, [t('min_qty'), num(it.min_qty)], [t('description'), it.description || '-']])), acts,
     h('h2', {}, t('who_has_it')), table([t('employee'), t('company'), t('qty'), t('last_seen'), ''], d.holders.map((x) => [h('span', {}, h('span', {class: 'dot ' + (x.online ? 'on' : '')}), ' ', x.name), x.company || '', `${num(x.qty)} ${it.unit}`,
       x.last_seen ? fmtDate(x.last_seen) : '-', h('span', {class: 'row'}, x.lat != null ? h('button', {class: 'ghost small', onclick: () => holderMap(x)}, '📍 ' + t('where_is_it')) : null,
