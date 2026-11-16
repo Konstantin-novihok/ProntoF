@@ -55,7 +55,7 @@ if len(OWNER_PASSWORD) < 8:
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {}, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 password_hash = PasswordHash.recommended()
-app = FastAPI(title="ProntoF internal video worker", version="0.2.0", description="Внутренний сервис обработки видео для Home Master")
+app = FastAPI(title="ProntoF internal video worker", version="0.2.0", description="Внутренний сервис обработки видео для Home Master", docs_url=None if INTERNAL_ONLY else "/docs", redoc_url=None if INTERNAL_ONLY else "/redoc", openapi_url=None if INTERNAL_ONLY else "/openapi.json")
 
 @app.middleware("http")
 async def internal_only_guard(request: Request, call_next):
