@@ -1,11 +1,16 @@
-name: ProntoF checks
+name: ProntoF and Home Master checks
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
+
 jobs:
-  syntax:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +20,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Compile Python source
-        run: python -m py_compile server/app.py
-      - name: Check browser JavaScript
-        run: node --check web/app.js
+      - name: Compile both backend codebases
+        run: |
+          python -m compileall -q server home-master/server
+      - name: Check Home Master browser JavaScript
+        run: |
+          set -euo pipefail
+          for f in home-master/web/*.js; do node --check "$f"; done
+      - name: Validate locale JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in Path("home-master/web/locales").glob("*.json"):
+              json.loads(path.read_text(encoding="utf-8"))
+              print("OK", path)
+          PY
+      - name: Ensure no standalone ProntoF UI remains
+        run: |
+          test ! -e web/index.html
+          test ! -e web/app.js
+          grep -q 'INTERNAL_ONLY=1' server/Dockerfile
+          grep -q 'PRONTOF_API_URL: http://prontof-worker:8000' docker-compose.yml
