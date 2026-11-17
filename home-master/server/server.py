@@ -1282,22 +1282,21 @@ def delete_order_media(oid: int, mid: int, user: User = Depends(current_user), d
     media = db.get(Media, mid)
     if not media or media.order_id != oid: raise HTTPException(404, "Файл не найден в этом заказе")
     path = media_path(media)
-    for receipt in db.scalars(select(MediaUploadReceipt).where(MediaUploadReceipt.media_id == mid)): db.delete(receipt)
-    db.delete(media)
-    log(db, user, "delete_order_media", "order", oid,
-        json.dumps({"media_id": mid, "filename": media.original, "size": media.size,
-                    "server_path": media.filename}, ensure_ascii=False))
-    db.commit()
-    deleted = False
     if os.path.isfile(path):
         try:
             os.remove(path)
-            deleted = True
         except OSError as exc:
             log(db, user, "delete_order_media_failed", "order", oid,
                 json.dumps({"media_id": mid, "filename": media.original, "error": str(exc)}, ensure_ascii=False))
             db.commit()
-    return {"ok": True, "deleted_from_disk": deleted or not os.path.exists(path)}
+            raise HTTPException(500, "Не удалось удалить файл с диска; запись вложения сохранена")
+    for receipt in db.scalars(select(MediaUploadReceipt).where(MediaUploadReceipt.media_id == mid)):
+        db.delete(receipt)
+    db.delete(media)
+    log(db, user, "delete_order_media", "order", oid,
+        json.dumps({"media_id": mid, "filename": media.original, "size": media.size}, ensure_ascii=False))
+    db.commit()
+    return {"ok": True, "deleted_from_disk": True}
 
 @app.get("/media/{mid}")
 def get_media(mid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
