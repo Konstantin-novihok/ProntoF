@@ -122,9 +122,10 @@ route('orders', async () => {
 // ───────────── Файлы заказа: показ ─────────────
 function mediaItem(m, canDelete, orderId) {
   const url = mediaUrl(m.id);
-  if (m.mime.startsWith('image/')) return h('div', {class: 'fcard'}, h('a', {href: url, target: '_blank', rel: 'noopener'}, h('img', {src: url, alt: m.original})), fileFoot(m, url, canDelete, orderId));
-  if (m.mime.startsWith('video/')) return h('div', {class: 'fcard'}, h('video', {src: url, controls: true, preload: 'metadata'}), fileFoot(m, url, canDelete, orderId));
-  return h('div', {class: 'fcard'}, h('div', {class: 'ficon'}, fileIcon(m.original, m.mime)), fileFoot(m, url, canDelete, orderId));
+  const deletedMark = m.deleted ? h('div', {class:'muted small',style:'font-weight:700;color:var(--danger)'}, 'DELETE — удалено создателем') : null;
+  if (m.mime.startsWith('image/')) return h('div', {class: 'fcard'}, deletedMark, h('a', {href: url, target: '_blank', rel: 'noopener'}, h('img', {src: url, alt: m.original})), fileFoot(m, url, canDelete && !m.deleted, orderId));
+  if (m.mime.startsWith('video/')) return h('div', {class: 'fcard'}, deletedMark, h('video', {src: url, controls: true, preload: 'metadata'}), fileFoot(m, url, canDelete && !m.deleted, orderId));
+  return h('div', {class: 'fcard'}, deletedMark, h('div', {class: 'ficon'}, fileIcon(m.original, m.mime)), fileFoot(m, url, canDelete && !m.deleted, orderId));
 }
 function fileFoot(m, url, canDelete, orderId) {
   return h('div', {class: 'ffoot'}, h('div', {class: 'fname'}, m.original), h('div', {class: 'muted small'}, [m.size != null ? fmtBytes(m.size) : null, m.uploader].filter(Boolean).join(' · ')),
@@ -203,7 +204,7 @@ route('order', async (id) => {
     const users = (await api('GET', '/staff')).filter((u) => u.role === 3 && u.is_active && u.verification === 'verified' && (role !== 2 || u.department_id === o.department_id));
     if (!users.length) throw new Error(t('no_executors'));
     const uid = await pick(t('assign_executor'), users.map((u) => ({label: personName(u) + (u.company_name ? ' · ' + u.company_name : ''), value: u.id}))); if (uid) await post('assign', {executor_id: uid}); });
-  const sourceVideos = d.media.filter((m) => (m.mime || '').startsWith('video/'));
+  const sourceVideos = d.media.filter((m) => !m.deleted && (m.mime || '').startsWith('video/'));
   if (sourceVideos.length && ![5, 6].includes(role)) {
     const languages = [
       ['uk','Українська'],['ru','Русский'],['de','Deutsch'],['fr','Français'],['it','Italiano'],['en','English'],
