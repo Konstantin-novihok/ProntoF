@@ -171,7 +171,7 @@ jobs:
               assert abs(settled.json()["cost_price"] - 53) < 0.01, settled.json()
               print("Collaboration, private report files, warehouse reservation and multi-executor costing passed.")
           PY
-      - name: Verify immediate order visibility, creator history and physical attachment deletion
+      - name: Verify immediate order visibility, creator history and DELETE-prefixed attachment archive
         run: |
           mkdir -p "$RUNNER_TEMP/hm-upload-lifecycle"
           DATA_DIR="$RUNNER_TEMP/hm-upload-lifecycle" WEB_DIR="$GITHUB_WORKSPACE/home-master/web" SECRET_KEY="ci-upload-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-upload-owner-password" PYTHONPATH="$GITHUB_WORKSPACE/home-master/server" python - <<'PY'
@@ -219,14 +219,28 @@ jobs:
                   media = db.get(server.Media, mid)
                   disk_path = Path(server.media_path(media))
                   assert disk_path.is_file()
+                  superuser = server.User(username="upload_superuser", password_hash=server.hash_password("superuser-password"), role=server.OWNER, full_name="Superuser")
+                  db.add(superuser); db.commit()
+                  super_headers = {"Authorization":"Bearer " + server.make_token(superuser)}
               removed = client.delete(f"/orders/{oid}/media/{mid}", headers=headers)
-              assert removed.status_code == 200 and removed.json()["deleted_from_disk"] is True, removed.text
-              assert not disk_path.exists()
+              assert removed.status_code == 200 and removed.json()["marked_deleted"] is True, removed.text
               with server.SessionLocal() as db:
-                  assert db.get(server.Media, mid) is None
+                  archived = db.get(server.Media, mid)
+                  disk_path = Path(server.media_path(archived))
+                  assert archived is not None and Path(archived.filename).name.startswith("DELETE")
+                  assert disk_path.is_file() and disk_path.name.startswith("DELETE")
+              creator_order = client.get(f"/orders/{oid}", headers=headers)
+              assert creator_order.status_code == 200, creator_order.text
+              assert all(item["id"] != mid for item in creator_order.json()["media"])
+              assert client.get(f"/media/{mid}", headers=headers).status_code == 404
+              admin_order = client.get(f"/orders/{oid}", headers=super_headers)
+              assert admin_order.status_code == 200, admin_order.text
+              archived_item = next(item for item in admin_order.json()["media"] if item["id"] == mid)
+              assert archived_item["deleted"] is True and archived_item["server_name"].startswith("DELETE")
+              assert client.get(f"/media/{mid}", headers=super_headers).status_code == 200
               history = client.get(f"/orders/{oid}/history", headers=headers).json()
               assert any(x["action"] == "delete_order_media" and "proof.txt" in x["details"] for x in history)
-              print("Immediate order visibility, creator edit history, media removal and deletion audit passed.")
+              print("Immediate order, creator history, DELETE archive, creator hiding and superuser recovery passed.")
           PY
       - name: Import video worker and render a short Ukrainian MP4 with Piper
         run: |
