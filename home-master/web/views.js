@@ -264,27 +264,21 @@ route('order', async (id) => {
   const say = (pub) => async () => { const v = await formModal(t('message'), [{key: 'text', label: 'text', type: 'textarea'}]); if (v && v.text.trim()) await post('comments', {text: v.text, public: pub}); };
   if (role !== 6) {
     if ([1, 2, 3, 7].includes(role)) { act('message_client', say(true), 'go'); act('comment_internal', say(false)); } else act('message', say(true), 'go');
-    act('attach_file', async () => {
-      const fl = await chooseFiles('');
-      if (!fl.length) return;
-      const total = fl.reduce((sum, file) => sum + file.size, 0);
-      let completed = 0;
-      attachmentProgressFill.style.width = '0%';
-      for (let i = 0; i < fl.length; i++) {
-        const file = fl[i];
-        await uploadFileWithProgress('/orders/' + id + '/media', file, (loaded) => {
-          const percent = total ? Math.round(Math.min(100, (completed + Math.min(file.size, loaded)) / total * 100)) : 0;
-          attachmentProgressFill.style.width = percent + '%';
-          attachmentStatus.textContent = 'Загрузка вложений ' + (i + 1) + '/' + fl.length + ': ' + file.name + ' — ' + percent + '%';
-        });
-        completed += file.size;
-      }
-      attachmentProgressFill.style.width = '100%';
-      attachmentStatus.textContent = 'Все вложения добавлены.';
-      toast(t('saved'));
-      reload();
+    const enqueueAttachments = (picked) => {
+      if (!picked.length) return;
+      let q = S.uploadQueue;
+      if (!q || q.orderId !== Number(id)) q = S.uploadQueue = {orderId:Number(id),files:[],totalBytes:0,completedBytes:0,currentLoaded:0,running:false,status:'',ui:null};
+      for (const file of picked) { q.files.push({file,error:null}); q.totalBytes += file.size; }
+      q.ui = {status:attachmentStatus,fill:attachmentProgressFill,retry:retryUploadButton};
+      q.status = 'Добавлено файлов: ' + picked.length + '. Начинаем загрузку…';
+      updateOrderUploadUI(q);
+      runOrderAttachmentQueue(id);
+    };
+    act('attach_file', async () => { enqueueAttachments(await chooseFiles('')); });
+    act('take_photo', async () => {
+      const x = await cameraCapture().catch((e) => { toast(e.message, true); return null; });
+      if (x) enqueueAttachments([x]);
     });
-    act('take_photo', async () => { const x = await cameraCapture().catch((e) => { toast(e.message, true); return null; }); if (x) { await uploadFiles(`/orders/${id}/media`, [x]); toast(t('saved')); reload(); } });
   }
   if (canEditOrder || ![4, 5].includes(role)) act('order_history', async () => {
     const rows = await api('GET', `/orders/${id}/history`);
@@ -458,7 +452,8 @@ async function runOrderAttachmentQueue(orderId) {
   q.running = true;
   q.status = 'Подготовка вложений…';
   updateOrderUploadUI(q);
-  for (const item of [...q.files]) {
+  const batch = [...q.files];
+  for (const item of batch) {
     q.currentLoaded = 0;
     q.status = 'Загрузка: ' + item.file.name;
     updateOrderUploadUI(q);
