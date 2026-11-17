@@ -120,16 +120,22 @@ route('orders', async () => {
 });
 
 // ───────────── Файлы заказа: показ ─────────────
-function mediaItem(m, canDelete) {
+function mediaItem(m, canDelete, orderId) {
   const url = mediaUrl(m.id);
-  if (m.mime.startsWith('image/')) return h('div', {class: 'fcard'}, h('a', {href: url, target: '_blank', rel: 'noopener'}, h('img', {src: url, alt: m.original})), fileFoot(m, url));
-  if (m.mime.startsWith('video/')) return h('div', {class: 'fcard'}, h('video', {src: url, controls: true, preload: 'metadata'}), fileFoot(m, url));
-  return h('div', {class: 'fcard'}, h('div', {class: 'ficon'}, fileIcon(m.original, m.mime)), fileFoot(m, url));
+  if (m.mime.startsWith('image/')) return h('div', {class: 'fcard'}, h('a', {href: url, target: '_blank', rel: 'noopener'}, h('img', {src: url, alt: m.original})), fileFoot(m, url, canDelete, orderId));
+  if (m.mime.startsWith('video/')) return h('div', {class: 'fcard'}, h('video', {src: url, controls: true, preload: 'metadata'}), fileFoot(m, url, canDelete, orderId));
+  return h('div', {class: 'fcard'}, h('div', {class: 'ficon'}, fileIcon(m.original, m.mime)), fileFoot(m, url, canDelete, orderId));
 }
-function fileFoot(m, url) {
+function fileFoot(m, url, canDelete, orderId) {
   return h('div', {class: 'ffoot'}, h('div', {class: 'fname'}, m.original), h('div', {class: 'muted small'}, [m.size != null ? fmtBytes(m.size) : null, m.uploader].filter(Boolean).join(' · ')),
     h('div', {class: 'row'}, h('a', {href: url, target: '_blank', rel: 'noopener'}, t('open')),
-      h('button', {class: 'ghost small', onclick: guard(() => saveUrl(url, m.original, m.mime))}, t('save_as'))));
+      h('button', {class: 'ghost small', onclick: guard(() => saveUrl(url, m.original, m.mime))}, t('save_as')),
+      canDelete ? h('button', {class:'danger small', onclick:guard(async () => {
+        if (!await confirmBox('Удалить вложение «' + m.original + '»?')) return;
+        await api('DELETE', '/orders/' + orderId + '/media/' + m.id);
+        toast('Вложение удалено');
+        render();
+      })}, 'Удалить') : null));
 }
 
 // ───────────── Карточка заказа ─────────────
@@ -143,7 +149,23 @@ route('order', async (id) => {
   const reload = () => render();
   const post = guard(async (action, body) => { await api('POST', `/orders/${id}/${action}`, body || {}); reload(); });
   const actions = h('div', {class: 'actions'});
+  const canEditOrder = o.created_by === S.me.id;
+  const attachmentStatus = h('p', {class:'muted small', style:'min-height:1.2em'});
+  const attachmentProgressFill = h('div', {class:'upload-progress-fill', style:'width:0%'});
+  const attachmentProgress = h('div', {class:'upload-progress'}, attachmentProgressFill);
   const act = (key, fn, cls) => actions.append(h('button', {class: cls || 'ghost', onclick: guard(fn)}, t(key)));
+  if (canEditOrder) actions.append(h('button', {class:'ghost', onclick:guard(async () => {
+    const values = await formModal('Редактировать заказ', [
+      {key:'title',label:'Название',value:o.title},
+      {key:'service_type',label:t('service_type'),value:o.service_type || ''},
+      {key:'description',label:t('description'),type:'textarea',value:o.description || ''},
+      {key:'address',label:t('address'),value:o.address || ''}
+    ]);
+    if (!values) return;
+    await api('PATCH', '/orders/' + id, values);
+    toast('Изменения заказа сохранены');
+    reload();
+  })}, 'Редактировать заказ'));
   const mapBox = h('div', {});
   if (o.lat != null) {
     act('show_map', async () => {
@@ -227,7 +249,26 @@ route('order', async (id) => {
   const say = (pub) => async () => { const v = await formModal(t('message'), [{key: 'text', label: 'text', type: 'textarea'}]); if (v && v.text.trim()) await post('comments', {text: v.text, public: pub}); };
   if (role !== 6) {
     if ([1, 2, 3, 7].includes(role)) { act('message_client', say(true), 'go'); act('comment_internal', say(false)); } else act('message', say(true), 'go');
-    act('attach_file', async () => { const fl = await chooseFiles(''); if (fl.length) { await uploadFiles(`/orders/${id}/media`, fl); toast(t('saved')); reload(); } });
+    act('attach_file', async () => {
+      const fl = await chooseFiles('');
+      if (!fl.length) return;
+      const total = fl.reduce((sum, file) => sum + file.size, 0);
+      let completed = 0;
+      attachmentProgressFill.style.width = '0%';
+      for (let i = 0; i < fl.length; i++) {
+        const file = fl[i];
+        await uploadFileWithProgress('/orders/' + id + '/media', file, (loaded) => {
+          const percent = total ? Math.round(Math.min(100, (completed + Math.min(file.size, loaded)) / total * 100)) : 0;
+          attachmentProgressFill.style.width = percent + '%';
+          attachmentStatus.textContent = 'Загрузка вложений ' + (i + 1) + '/' + fl.length + ': ' + file.name + ' — ' + percent + '%';
+        });
+        completed += file.size;
+      }
+      attachmentProgressFill.style.width = '100%';
+      attachmentStatus.textContent = 'Все вложения добавлены.';
+      toast(t('saved'));
+      reload();
+    });
     act('take_photo', async () => { const x = await cameraCapture().catch((e) => { toast(e.message, true); return null; }); if (x) { await uploadFiles(`/orders/${id}/media`, [x]); toast(t('saved')); reload(); } });
   }
   if (![4, 5].includes(role)) act('order_history', async () => {
@@ -281,7 +322,7 @@ route('order', async (id) => {
           await api('PUT', `/orders/${id}/reports/me`, {work_done:v.work_done,comments:v.comments,materials,labor_hours:parseFloat(v.labor_hours)||0,other_cost:parseFloat(v.other_cost)||0,submit:true});
           toast(t('saved')); reload();
         })}, t('submit_report'))) : null) : null;
-  const media = d.media.map((m) => mediaItem(m));
+  const media = d.media.map((m) => mediaItem(m, canEditOrder, id));
   const videoProcessing = videoJobs.length ? h('div', {}, h('div', {class:'row'}, h('h2', {class:'grow'}, t('video_processing')),
     h('button', {class:'ghost small', onclick: () => render()}, t('video_refresh'))),
     ...videoJobs.map((j) => {
@@ -318,7 +359,7 @@ route('order', async (id) => {
     })) : null;
   const fin = [1, 2, 3, 4, 7, 6].includes(role) ? await financePanel(o) : null;
   return h('div', {}, h('div', {class: 'row'}, back('#/orders'), h('h1', {class: 'grow'}, `#${o.id} ${o.title}`)),
-    h('div', {class: 'card'}, kvList(info)), actions, mapBox, collaboration, fin, videoProcessing,
+    h('div', {class: 'card'}, kvList(info)), actions, attachmentStatus, attachmentProgress, mapBox, collaboration, fin, videoProcessing,
     h('h2', {}, t('comments')), d.comments.length ? d.comments.map((c) => h('div', {class: 'comment' + (c.public ? '' : ' internal')},
       h('b', {}, c.author), ' ', h('span', {class: 'muted small'}, fmtDate(c.created_at) + (c.public ? '' : ` (${t('internal')})`)), h('div', {}, c.text))) : h('p', {class: 'muted'}, t('no_data')),
     h('h2', {}, t('media')), media.length ? h('div', {class: 'gallery'}, media) : h('p', {class: 'muted'}, t('no_data')));
@@ -407,6 +448,8 @@ route('new', async () => {
     }
   };
   const uploadStatus = h('p', {class:'muted small', style:'min-height:1.2em'});
+  const uploadProgressFill = h('div', {class:'upload-progress-fill', style:'width:0%'});
+  const uploadProgress = h('div', {class:'upload-progress'}, uploadProgressFill);
   let submitButton = null;
   const submit = guard(async () => {
     if (!D.createdOrderId && !title.value.trim()) throw new Error(t('title'));
@@ -423,18 +466,28 @@ route('new', async () => {
       }
       if (D.files.length) {
         const pending = [...D.files];
+        const totalBytes = pending.reduce((sum, file) => sum + file.size, 0);
+        let completedBytes = 0;
+        uploadProgressFill.style.width = '0%';
         for (let i = 0; i < pending.length; i++) {
           const file = pending[i];
-          uploadStatus.textContent = `Подготовка загрузки ${i + 1}/${pending.length}: ${file.name}`;
-          await uploadFileWithProgress(`/orders/${orderId}/media`, file, (loaded, total) => {
-            const percent = total ? Math.round(loaded / total * 100) : 0;
-            uploadStatus.textContent = `Загрузка ${i + 1}/${pending.length}: ${file.name} — ${percent}% (${fmtBytes(loaded)} / ${fmtBytes(total)})`;
+          uploadStatus.textContent = 'Подготовка загрузки ' + (i + 1) + '/' + pending.length + ': ' + file.name;
+          await uploadFileWithProgress('/orders/' + orderId + '/media', file, (loaded) => {
+            const sent = Math.min(file.size, loaded);
+            const overall = totalBytes ? Math.min(100, Math.round((completedBytes + sent) / totalBytes * 100)) : 0;
+            uploadProgressFill.style.width = overall + '%';
+            uploadStatus.textContent = 'Загрузка ' + (i + 1) + '/' + pending.length + ': ' + file.name + ' — ' + overall + '% всего (' + fmtBytes(completedBytes + sent) + ' / ' + fmtBytes(totalBytes) + ')';
           });
+          completedBytes += file.size;
+          uploadProgressFill.style.width = (totalBytes ? Math.round(completedBytes / totalBytes * 100) : 100) + '%';
+          uploadStatus.textContent = 'Файл ' + (i + 1) + '/' + pending.length + ' загружен: ' + file.name;
           const index = D.files.indexOf(file);
           if (index >= 0) D.files.splice(index, 1);
           files.redraw();
         }
       }
+      uploadProgressFill.style.width = '100%';
+      uploadStatus.textContent = 'Все выбранные файлы загружены. Заказ полностью сформирован.'
       S.draft = null;
       toast(t('order_created'));
       location.hash = '#/order/' + orderId;
@@ -462,7 +515,7 @@ route('new', async () => {
     files.el,
     preview,
     h('p', {class:'muted small'}, 'Видео и фотографии прикрепляются к заказу как обычные файлы. Перевод, если он понадобится, запускается отдельно из карточки заказа.'),
-    uploadStatus,
+    uploadStatus, uploadProgress,
     h('div', {style: 'margin-top:14px'}, (submitButton = h('button', {onclick: submit}, t('submit')))));
 }, [1, 2, 3, 4, 5, 6, 7]);
 
