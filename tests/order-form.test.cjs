@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {loadOrderFormReferences} = require('../home-master/web/order-form.js');
+const {loadOrderFormReferences, buildOrderFormPayload} = require('../home-master/web/order-form.js');
 
 test('returns ready lists independently and keeps numeric IDs', async () => {
   const refs = await loadOrderFormReferences(async (_method, path) => path === '/departments'
@@ -31,4 +31,12 @@ test('does not request client directory for roles without client selection', asy
   }, 4);
   assert.deepEqual(paths, ['/departments']);
   assert.equal(refs.clients.state, 'not-applicable');
+});
+
+test('builds order payload with numeric IDs and null for unselected references', () => {
+ const payload = buildOrderFormPayload({department_id:'17',client_id:'29'});
+ assert.equal(payload.department_id,17); assert.equal(typeof payload.department_id,'number');
+ assert.equal(payload.client_id,29); assert.equal(typeof payload.client_id,'number');
+ const empty=buildOrderFormPayload({department_id:'',client_id:''});
+ assert.equal(empty.department_id,null); assert.equal(empty.client_id,null);
 });
