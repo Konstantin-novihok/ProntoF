@@ -921,10 +921,10 @@ def comment_out(db: Session, c: Comment):
 
 
 class OrderUpdateIn(BaseModel):
-    title: Optional[str] = Field(default=None, max_length=200)
-    description: Optional[str] = Field(default=None, max_length=20000)
-    address: Optional[str] = Field(default=None, max_length=300)
-    service_type: Optional[str] = Field(default=None, max_length=80)
+    title: Optional[str] = None
+    description: Optional[str] = None
+    address: Optional[str] = None
+    service_type: Optional[str] = None
 
 @app.patch("/orders/{oid}")
 def update_order(oid: int, b: OrderUpdateIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
