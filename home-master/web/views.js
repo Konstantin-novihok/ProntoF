@@ -153,6 +153,16 @@ route('order', async (id) => {
   const attachmentStatus = h('p', {class:'muted small', style:'min-height:1.2em'});
   const attachmentProgressFill = h('div', {class:'upload-progress-fill', style:'width:0%'});
   const attachmentProgress = h('div', {class:'upload-progress'}, attachmentProgressFill);
+  const activeUpload = S.uploadQueue && S.uploadQueue.orderId === Number(id) ? S.uploadQueue : null;
+  let retryUploadButton = null;
+  if (activeUpload) {
+    activeUpload.ui = {status:attachmentStatus,fill:attachmentProgressFill,retry:null};
+    attachmentStatus.textContent = activeUpload.status || '';
+    attachmentProgressFill.style.width = (activeUpload.percent || 0) + '%';
+    retryUploadButton = h('button', {class:'ghost small', disabled:activeUpload.running || !activeUpload.files.length,
+      onclick:guard(async () => { await runOrderAttachmentQueue(id); })}, 'Повторить незавершённые файлы');
+    activeUpload.ui.retry = retryUploadButton;
+  }
   const act = (key, fn, cls) => actions.append(h('button', {class: cls || 'ghost', onclick: guard(fn)}, t(key)));
   if (canEditOrder) actions.append(h('button', {class:'ghost', onclick:guard(async () => {
     const values = await formModal('Редактировать заказ', [
@@ -276,7 +286,7 @@ route('order', async (id) => {
     });
     act('take_photo', async () => { const x = await cameraCapture().catch((e) => { toast(e.message, true); return null; }); if (x) { await uploadFiles(`/orders/${id}/media`, [x]); toast(t('saved')); reload(); } });
   }
-  if (![4, 5].includes(role)) act('order_history', async () => {
+  if (canEditOrder || ![4, 5].includes(role)) act('order_history', async () => {
     const rows = await api('GET', `/orders/${id}/history`);
     modal(t('order_history'), h('div', {}, rows.length ? rows.map((r) => h('div', {class: 'small', style: 'margin:6px 0'}, `${fmtDate(r.created_at)} — ${r.actor}: ${r.action} ${r.details}`)) : t('no_data'),
       h('div', {style: 'margin-top:10px'}, h('button', {onclick: (e) => e.target.closest('.modal-back').remove()}, t('close'))))); });
@@ -364,7 +374,9 @@ route('order', async (id) => {
     })) : null;
   const fin = [1, 2, 3, 4, 7, 6].includes(role) ? await financePanel(o) : null;
   return h('div', {}, h('div', {class: 'row'}, back('#/orders'), h('h1', {class: 'grow'}, `#${o.id} ${o.title}`)),
-    h('div', {class: 'card'}, kvList(info)), actions, attachmentStatus, attachmentProgress, mapBox, collaboration, fin, videoProcessing,
+    h('div', {class: 'card'}, kvList(info)), actions,
+    activeUpload ? h('div', {class:'card'}, h('b', {}, 'Загрузка вложений'), attachmentStatus, attachmentProgress, retryUploadButton) : null,
+    attachmentStatus, attachmentProgress, mapBox, collaboration, fin, videoProcessing,
     h('h2', {}, t('comments')), d.comments.length ? d.comments.map((c) => h('div', {class: 'comment' + (c.public ? '' : ' internal')},
       h('b', {}, c.author), ' ', h('span', {class: 'muted small'}, fmtDate(c.created_at) + (c.public ? '' : ` (${t('internal')})`)), h('div', {}, c.text))) : h('p', {class: 'muted'}, t('no_data')),
     h('h2', {}, t('media')), media.length ? h('div', {class: 'gallery'}, media) : h('p', {class: 'muted'}, t('no_data')));
@@ -426,6 +438,57 @@ async function financePanel(o) {
   return box;
 }
 
+
+// ───────────── Очередь вложений заказа ─────────────
+// Успешно принятые файлы удаляются из очереди; повтор запускает только оставшиеся.
+function updateOrderUploadUI(q) {
+  const total = q.totalBytes || 0;
+  const done = q.completedBytes || 0;
+  const current = q.currentLoaded || 0;
+  const percent = total ? Math.min(100, Math.round((done + current) / total * 100)) : (q.files.length ? 0 : 100);
+  q.percent = percent;
+  if (q.ui) {
+    q.ui.fill.style.width = percent + '%';
+    q.ui.status.textContent = q.status || '';
+  }
+}
+async function runOrderAttachmentQueue(orderId) {
+  const q = S.uploadQueue;
+  if (!q || q.orderId !== Number(orderId) || q.running) return;
+  q.running = true;
+  q.status = 'Подготовка вложений…';
+  updateOrderUploadUI(q);
+  for (const item of [...q.files]) {
+    q.currentLoaded = 0;
+    q.status = 'Загрузка: ' + item.file.name;
+    updateOrderUploadUI(q);
+    try {
+      await uploadFileWithProgress('/orders/' + orderId + '/media', item.file, (loaded) => {
+        q.currentLoaded = Math.min(item.file.size, loaded);
+        q.status = 'Загрузка ' + item.file.name + ' — ' + q.percent + '%';
+        updateOrderUploadUI(q);
+      });
+      q.completedBytes += item.file.size;
+      q.files = q.files.filter((x) => x !== item);
+      q.currentLoaded = 0;
+      q.status = 'Загружен файл: ' + item.file.name;
+      updateOrderUploadUI(q);
+    } catch (e) {
+      item.error = e.message || 'Ошибка загрузки';
+      q.currentLoaded = 0;
+      q.status = 'Не загружен: ' + item.file.name + '. ' + item.error;
+      updateOrderUploadUI(q);
+    }
+  }
+  q.running = false;
+  const failed = q.files.length;
+  q.status = failed
+    ? 'Не удалось загрузить ' + failed + ' файл(ов). Успешно загруженные повторно не отправляются.'
+    : 'Все выбранные вложения загружены.';
+  updateOrderUploadUI(q);
+  if (q.ui && q.ui.retry) q.ui.retry.disabled = !failed;
+}
+
 // ───────────── Новый заказ ─────────────
 route('new', async () => {
   const D = S.draft || (S.draft = {files: [], lat: null, lon: null, createdOrderId: null});
@@ -464,40 +527,20 @@ route('new', async () => {
       if (!orderId) {
         uploadStatus.textContent = 'Создание заказа…';
         const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
-          department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null, upload_session: true};
+          department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null};
         const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
         orderId = o.id;
         D.createdOrderId = orderId;
       }
-      if (D.files.length) {
-        const pending = [...D.files];
-        const totalBytes = pending.reduce((sum, file) => sum + file.size, 0);
-        let completedBytes = 0;
-        uploadProgressFill.style.width = '0%';
-        for (let i = 0; i < pending.length; i++) {
-          const file = pending[i];
-          uploadStatus.textContent = 'Подготовка загрузки ' + (i + 1) + '/' + pending.length + ': ' + file.name;
-          await uploadFileWithProgress('/orders/' + orderId + '/media', file, (loaded) => {
-            const sent = Math.min(file.size, loaded);
-            const overall = totalBytes ? Math.min(100, Math.round((completedBytes + sent) / totalBytes * 100)) : 0;
-            uploadProgressFill.style.width = overall + '%';
-            uploadStatus.textContent = 'Загрузка ' + (i + 1) + '/' + pending.length + ': ' + file.name + ' — ' + overall + '% всего (' + fmtBytes(completedBytes + sent) + ' / ' + fmtBytes(totalBytes) + ')';
-          });
-          completedBytes += file.size;
-          uploadProgressFill.style.width = (totalBytes ? Math.round(completedBytes / totalBytes * 100) : 100) + '%';
-          uploadStatus.textContent = 'Файл ' + (i + 1) + '/' + pending.length + ' загружен: ' + file.name;
-          const index = D.files.indexOf(file);
-          if (index >= 0) D.files.splice(index, 1);
-          files.redraw();
-        }
+      const selected = [...D.files];
+      if (selected.length) {
+        S.uploadQueue = {orderId:Number(orderId),files:selected.map((file)=>({file,error:null})),
+          totalBytes:selected.reduce((sum,file)=>sum+file.size,0),completedBytes:0,currentLoaded:0,running:false,status:'Открываем заказ…',ui:null};
       }
-      uploadProgressFill.style.width = '100%';
-      uploadStatus.textContent = 'Все выбранные файлы загружены. Завершаем оформление заказа…';
-      await api('POST', '/orders/' + orderId + '/finalize', {});
-      uploadStatus.textContent = 'Заказ полностью сформирован.';
       S.draft = null;
       toast(t('order_created'));
       location.hash = '#/order/' + orderId;
+      if (selected.length) runOrderAttachmentQueue(orderId);
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
