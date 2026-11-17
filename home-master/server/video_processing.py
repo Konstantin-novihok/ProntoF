@@ -244,7 +244,7 @@ async def video_translate_existing_media(oid:int,mid:int,target_language:Optiona
         if source_language:params["source_language"]=source_language
         result=await _remote_file_stream(f"/internal/orders/{oid}/uploads/{upload_id}",filepath,params)
     row=OrderVideoJob(order_id=oid,user_id=user.id,upload_id=upload_id,remote_job_id=result["job_id"],
-                      filename=media.original[:255],target_language=target_language)
+                      filename=media.original[:255],target_language=target_language or "")
     db.add(row)
     log(db,user,"video_processing_start","order",oid,f"source_media={mid}; target={target_language}")
     db.commit()
