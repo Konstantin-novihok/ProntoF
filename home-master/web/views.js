@@ -174,6 +174,11 @@ route('order', async (id) => {
       ['sk','Slovenčina'],['lt','Lietuvių'],['lv','Latviešu'],['no','Norsk']
     ];
     for (const source of sourceVideos) {
+      actions.append(h('button', {class:'ghost', onclick:guard(async () => {
+        const result = await api('POST', `/orders/${id}/video-processing/from-media/${encodeURIComponent(source.id)}`, {});
+        toast('Распознавание оригинала запущено · ' + result.job_id);
+        reload();
+      })}, 'Распознать оригинал'));
       act('translate_video', async () => {
         const target = await pick('Выберите язык перевода', languages.map(([value,label]) => ({value,label})));
         if (!target) return;
@@ -279,23 +284,38 @@ route('order', async (id) => {
   const media = d.media.map((m) => mediaItem(m));
   const videoProcessing = videoJobs.length ? h('div', {}, h('div', {class:'row'}, h('h2', {class:'grow'}, t('video_processing')),
     h('button', {class:'ghost small', onclick: () => render()}, t('video_refresh'))),
-    ...videoJobs.map((j) => h('div', {class:'card'},
-      h('b', {}, j.filename || 'Видео'),
-      h('div', {class:'muted small'}, `${j.status || '—'} · ${j.progress || 0}% · ${j.message || ''}`),
-      h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/source`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
-      j.error ? h('p', {class:'toast err'}, j.error) : null,
-      j.status === 'done' ? h('div', {class:'card'}, 
-        j.render_status === 'ready' ? h('div', {},
-          h('b', {}, t('video_render_ready')),
-          h('p', {class:'muted small'}, t('video_ai_voice_notice')),
-          h('video', {src:withToken(`/orders/${id}/video-processing/${j.job_id}/render/preview`),controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'}),
-          h('a', {class:'btnlink', href:withToken(`/orders/${id}/video-processing/${j.job_id}/render/download`) + (window.AndroidBridge ? '&client=android' : ''), download:j.render_filename || 'translated.mp4'}, '⬇ ' + t('video_download'))
-        ) : ['queued','running'].includes(j.render_status) ? h('p', {class:'muted'}, t('video_rendering')) :
-          h('div', {}, j.render_status === 'failed' ? h('p', {class:'toast err'}, j.render_error || t('video_render_failed')) : null,
-            h('button', {class:'go', onclick:guard(async () => { await api('POST', `/orders/${id}/video-processing/${j.job_id}/render`, {}); toast(t('video_render_started')); reload(); })}, t('video_render')))
-      ) : null,
-      j.transcript ? h('details', {}, h('summary', {}, t('video_transcript')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.transcript)) : null,
-      j.translated_text ? h('details', {}, h('summary', {}, t('video_translation')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.translated_text)) : null))) : null;
+    ...videoJobs.map((j) => {
+      const originalUrl = withToken(`/orders/${id}/video-processing/${j.job_id}/source`);
+      const translatedUrl = withToken(`/orders/${id}/video-processing/${j.job_id}/render/preview`);
+      const player = h('video', {src:originalUrl,controls:true,preload:'metadata',style:'width:100%;max-height:420px;border-radius:12px'});
+      const transcriptEditor = h('textarea', {style:'width:100%;min-height:180px;white-space:pre-wrap'});
+      transcriptEditor.value = j.transcript || '';
+      const saveTranscript = h('button', {class:'go', onclick:guard(async () => {
+        await api('PUT', `/orders/${id}/video-processing/${j.job_id}/transcript`, {transcript:transcriptEditor.value});
+        toast('Исправленные субтитры сохранены');
+        reload();
+      })}, 'Сохранить исправления субтитров');
+      const playerChoices = h('div', {class:'row'},
+        h('button', {class:'ghost small', onclick:() => { player.src = originalUrl; player.load(); }}, 'Оригинал'),
+        j.render_status === 'ready' ? h('button', {class:'ghost small', onclick:() => { player.src = translatedUrl; player.load(); }}, 'Переведённое видео') : null);
+      return h('div', {class:'card'},
+        h('b', {}, j.filename || 'Видео'),
+        h('div', {class:'muted small'}, `${j.status || '—'} · ${j.progress || 0}% · ${j.message || ''}`),
+        playerChoices, player,
+        j.source_language ? h('p', {class:'muted small'}, 'Распознанный язык: ' + j.source_language) : null,
+        j.error ? h('p', {class:'toast err'}, j.error) : null,
+        j.status === 'done' && j.target_language ? h('div', {class:'card'},
+          j.render_status === 'ready' ? h('div', {},
+            h('b', {}, t('video_render_ready')),
+            h('p', {class:'muted small'}, t('video_ai_voice_notice')),
+            h('a', {class:'btnlink', href:withToken(`/orders/${id}/video-processing/${j.job_id}/render/download`) + (window.AndroidBridge ? '&client=android' : ''), download:j.render_filename || 'translated.mp4'}, '⬇ ' + t('video_download'))
+          ) : ['queued','running'].includes(j.render_status) ? h('p', {class:'muted'}, t('video_rendering')) :
+            h('div', {}, j.render_status === 'failed' ? h('p', {class:'toast err'}, j.render_error || t('video_render_failed')) : null,
+              h('button', {class:'go', onclick:guard(async () => { await api('POST', `/orders/${id}/video-processing/${j.job_id}/render`, {}); toast(t('video_render_started')); reload(); })}, t('video_render')))
+        ) : null,
+        j.transcript ? h('details', {open:true}, h('summary', {}, 'Исходные субтитры — можно редактировать'), transcriptEditor, saveTranscript) : null,
+        j.translated_text ? h('details', {}, h('summary', {}, t('video_translation')), h('pre', {style:'white-space:pre-wrap;overflow-wrap:anywhere'}, j.translated_text)) : null);
+    })) : null;
   const fin = [1, 2, 3, 4, 7, 6].includes(role) ? await financePanel(o) : null;
   return h('div', {}, h('div', {class: 'row'}, back('#/orders'), h('h1', {class: 'grow'}, `#${o.id} ${o.title}`)),
     h('div', {class: 'card'}, kvList(info)), actions, mapBox, collaboration, fin, videoProcessing,
