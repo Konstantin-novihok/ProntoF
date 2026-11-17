@@ -221,7 +221,7 @@ async def video_upload_complete(oid: int, upload_id: str, data: VideoUploadCompl
 
 
 @router.post("/orders/{oid}/video-processing/from-media/{mid}")
-async def video_translate_existing_media(oid:int,mid:int,target_language:str=Query(...,min_length=2,max_length=8),
+async def video_translate_existing_media(oid:int,mid:int,target_language:Optional[str]=Query(default=None,min_length=2,max_length=8),
                                          source_language:Optional[str]=Query(default=None),
                                          user:User=Depends(current_user),db:Session=Depends(get_db)):
     _check_order(oid,user,db)
@@ -238,6 +238,8 @@ async def video_translate_existing_media(oid:int,mid:int,target_language:str=Que
         response=await _remote("POST",f"/internal/orders/{oid}/videos/import",json=payload)
         result=response.json()
     else:
+        if not target_language:
+            raise HTTPException(422,"Для распознавания старого файла без перевода требуется сначала перенести его в общее хранилище заказа")
         params={"filename":media.original,"target_language":target_language}
         if source_language:params["source_language"]=source_language
         result=await _remote_file_stream(f"/internal/orders/{oid}/uploads/{upload_id}",filepath,params)
