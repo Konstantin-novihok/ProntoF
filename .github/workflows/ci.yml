@@ -242,8 +242,13 @@ jobs:
               assert any(x["action"] == "delete_order_media" and "proof.txt" in x["details"] for x in history)
               print("Immediate order, creator history, DELETE archive, creator hiding and superuser recovery passed.")
           PY
-      - name: Verify faster-whisper audio decoding against pinned PyAV
+      - name: Import video worker and render a short Ukrainian MP4 with Piper
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg build-essential cmake ninja-build
+          python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple "torch>=1.3.0"
+          python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('CPU-only PyTorch:', torch.__version__)"
+          python -m pip install -r server/requirements.txt
           python - <<'PY'
           import math
           import struct
@@ -265,13 +270,6 @@ jobs:
           assert len(decoded) == sample_rate, f"Unexpected decoded sample count: {len(decoded)}"
           print(f"faster-whisper decoded WAV successfully with PyAV {av.__version__}")
           PY
-      - name: Import video worker and render a short Ukrainian MP4 with Piper
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg build-essential cmake ninja-build
-          python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple "torch>=1.3.0"
-          python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('CPU-only PyTorch:', torch.__version__)"
-          python -m pip install -r server/requirements.txt
           mkdir -p "$RUNNER_TEMP/prontof-worker-smoke" "$RUNNER_TEMP/prontof-piper-voices"
           DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" ORDER_DATA_DIR="$RUNNER_TEMP/prontof-order-shared" PIPER_VOICE_DIR="$RUNNER_TEMP/prontof-piper-voices" INTERNAL_API_KEY="ci-internal-key" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
           import json, subprocess, uuid
