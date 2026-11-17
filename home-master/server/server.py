@@ -420,7 +420,7 @@ def order_out(db: Session, o: Order, viewer: Optional["User"] = None):
 
 def visible_orders(user: User):
     """ПРАВА ДОСТУПА К ЗАКАЗАМ: единое место, определяющее, кто какие заказы видит."""
-    q = select(Order).where(or_(Order.status != "uploading", Order.created_by == user.id))
+    q = select(Order)
     r = user.role
     if r in (OWNER, ADMIN, OBSERVER):
         return q
@@ -882,8 +882,7 @@ def create_order(b: OrderIn, request: Request, user: User = Depends(current_user
     o = Order(title=b.title.strip() or "-", description=b.description, address=b.address, lat=b.lat, lon=b.lon,
               department_id=b.department_id, client_id=client_id, created_by=user.id,
               service_type=b.service_type.strip()[:80], currency=order_currency)
-    if b.upload_session:
-        o.status = "uploading"
+    # Заказ публикуется сразу; загрузка вложений не блокирует его открытие.
     if user.role == HEAD:
         o.department_id = user.department_id
     db.add(o)
@@ -931,6 +930,7 @@ def update_order(oid: int, b: OrderUpdateIn, user: User = Depends(current_user),
     o = get_order(db, user, oid)
     if o.created_by != user.id:
         raise HTTPException(403, "Редактировать заказ может только его создатель")
+    before = {key: getattr(o, key) or "" for key in ("title", "service_type", "description", "address")}
     changes = b.model_dump(exclude_unset=True)
     if not changes:
         return order_out(db, o, user)
@@ -942,7 +942,12 @@ def update_order(oid: int, b: OrderUpdateIn, user: User = Depends(current_user),
     if "description" in changes: o.description = changes["description"] or ""
     if "address" in changes: o.address = changes["address"] or ""
     if "service_type" in changes: o.service_type = (changes["service_type"] or "").strip()[:80]
-    log(db, user, "edit_order", "order", o.id, "creator updated order details")
+    after = {key: getattr(o, key) or "" for key in ("title", "service_type", "description", "address")}
+    changed = {key: {"before": before[key], "after": after[key]}
+               for key in before if before[key] != after[key]}
+    if changed:
+        log(db, user, "edit_order", "order", o.id,
+            json.dumps(changed, ensure_ascii=False, separators=(",", ":")))
     db.commit()
     db.refresh(o)
     return order_out(db, o, user)
@@ -974,8 +979,9 @@ def order_detail(oid: int, user: User = Depends(current_user), db: Session = Dep
 
 @app.get("/orders/{oid}/history")
 def order_history(oid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    need(user, *STAFF_ROLES)
-    get_order(db, user, oid)
+    order = get_order(db, user, oid)
+    if user.role not in STAFF_ROLES and order.created_by != user.id:
+        raise HTTPException(403, "История доступна создателю заказа и уполномоченным участникам")
     if user.role == EXECUTOR:
         from collaboration import capability, participant
         if not participant(db, oid, user.id) and not capability(db, user, "order_assign"):
@@ -1278,12 +1284,20 @@ def delete_order_media(oid: int, mid: int, user: User = Depends(current_user), d
     path = media_path(media)
     for receipt in db.scalars(select(MediaUploadReceipt).where(MediaUploadReceipt.media_id == mid)): db.delete(receipt)
     db.delete(media)
-    log(db, user, "delete_order_media", "order", oid, media.original)
+    log(db, user, "delete_order_media", "order", oid,
+        json.dumps({"media_id": mid, "filename": media.original, "size": media.size,
+                    "server_path": media.filename}, ensure_ascii=False))
     db.commit()
+    deleted = False
     if os.path.isfile(path):
-        try: os.remove(path)
-        except OSError: pass
-    return {"ok": True}
+        try:
+            os.remove(path)
+            deleted = True
+        except OSError as exc:
+            log(db, user, "delete_order_media_failed", "order", oid,
+                json.dumps({"media_id": mid, "filename": media.original, "error": str(exc)}, ensure_ascii=False))
+            db.commit()
+    return {"ok": True, "deleted_from_disk": deleted or not os.path.exists(path)}
 
 @app.get("/media/{mid}")
 def get_media(mid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
