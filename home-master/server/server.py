@@ -1218,9 +1218,9 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
                 raise HTTPException(409, "Upload ID belongs to another account or order")
             expected_hash = (request.headers.get("x-content-sha256") or "").strip().lower()
             expected_size = request.headers.get("x-content-size")
-            if expected_hash != receipt.sha256 or expected_size != str(receipt.size):
+            if expected_size != str(receipt.size) or (expected_hash and expected_hash != receipt.sha256):
                 raise HTTPException(409, "Upload ID reused with different content metadata")
-            # Verify replay bytes too; do not trust client-supplied digest/size alone.
+            # Verify replay bytes too. A stable random client key prevents duplicates after a lost response.
             replay_digest = hashlib.sha256()
             replay_size = 0
             while chunk := await file.read(1024 * 1024):
@@ -1228,7 +1228,7 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
                 if replay_size > MAX_UPLOAD_MB * 1024 * 1024:
                     raise HTTPException(413, "File too large")
                 replay_digest.update(chunk)
-            if replay_size != receipt.size or replay_digest.hexdigest() != receipt.sha256:
+            if replay_size != receipt.size or (expected_hash and replay_digest.hexdigest() != receipt.sha256):
                 raise HTTPException(409, "Upload ID reused with different content")
             media = db.get(Media, receipt.media_id)
             if not media:
@@ -1237,9 +1237,9 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
                         kind=EXT_KIND.get(os.path.splitext(media.filename)[1].lstrip("."), "doc"))
     expected_hash = (request.headers.get("x-content-sha256") or "").strip().lower()
     expected_size = request.headers.get("x-content-size")
-    if upload_key and (len(expected_hash) != 64 or any(c not in "0123456789abcdef" for c in expected_hash)
-                       or expected_size is None or not expected_size.isdigit()):
-        raise HTTPException(400, "Idempotent uploads require X-Content-SHA256 and X-Content-Size")
+    if upload_key and (expected_size is None or not expected_size.isdigit()
+                       or (expected_hash and (len(expected_hash) != 64 or any(c not in "0123456789abcdef" for c in expected_hash)))):
+        raise HTTPException(400, "Idempotent uploads require a valid X-Content-Size and optional SHA-256")
     ext, kind = check_upload(file.filename, file.content_type)
     if user.role == EXECUTOR:
         evidence_folder = "photos" if kind == "image" else "videos" if kind == "video" else "files"
@@ -1255,7 +1255,7 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
         for chunk in iter(lambda: saved.read(1024 * 1024), b""):
             digest.update(chunk)
     actual_hash = digest.hexdigest()
-    if upload_key and (actual_hash != expected_hash or size != int(expected_size)):
+    if upload_key and (size != int(expected_size) or (expected_hash and actual_hash != expected_hash)):
         os.remove(path)
         raise HTTPException(400, "Uploaded content hash or size mismatch")
     m = Media(order_id=o.id, user_id=user.id, filename=stored_name, original=(file.filename or name)[:200],
