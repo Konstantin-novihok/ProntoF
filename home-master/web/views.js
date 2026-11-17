@@ -583,8 +583,8 @@ route('new', () => {
       let orderId = D.createdOrderId;
       if (!orderId) {
         uploadStatus.textContent = 'Создание заказа…';
-        const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
-          department_id: dep.value ? Number(dep.value) : null, client_id: cli.value ? Number(cli.value) : null};
+        const payload = buildOrderFormPayload({title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
+          department_id: dep.value, client_id: cli.value});
         const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
         orderId = o.id;
         D.createdOrderId = orderId;
