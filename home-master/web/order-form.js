@@ -23,6 +23,15 @@
     };
   }
 
+  function buildOrderFormPayload(values) {
+    return {
+      ...values,
+      department_id: values.department_id ? Number(values.department_id) : null,
+      client_id: values.client_id ? Number(values.client_id) : null
+    };
+  }
+
   root.loadOrderFormReferences = loadOrderFormReferences;
-  if (typeof module !== 'undefined' && module.exports) module.exports = {loadOrderFormReferences};
+  root.buildOrderFormPayload = buildOrderFormPayload;
+  if (typeof module !== 'undefined' && module.exports) module.exports = {loadOrderFormReferences, buildOrderFormPayload};
 })(globalThis);
