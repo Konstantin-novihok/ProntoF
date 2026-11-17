@@ -653,14 +653,14 @@ def internal_video_delete(video_id: str, request: Request, db: Session = Depends
 class InternalImportVideoIn(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     stored_name: str = Field(min_length=1, max_length=255)
-    target_language: str = Field(min_length=2, max_length=8)
+    target_language: Optional[str] = Field(default=None, min_length=2, max_length=8)
     source_language: Optional[str] = None
 
 @app.post("/internal/orders/{order_id}/videos/import")
 def internal_import_order_video(order_id:int,data:InternalImportVideoIn,request:Request,
                                 db:Session=Depends(db_session)):
     require_internal(request)
-    if order_id<1 or data.target_language not in LANGUAGES:
+    if order_id<1 or (data.target_language and data.target_language not in LANGUAGES):
         raise HTTPException(400,"Некорректный заказ или язык перевода")
     if data.source_language and data.source_language not in LANGUAGES:
         raise HTTPException(400,"Некорректный исходный язык")
@@ -683,7 +683,7 @@ def internal_import_order_video(order_id:int,data:InternalImportVideoIn,request:
                 stored_name=relative.as_posix(),size_bytes=size,visibility="private")
     job=Job(id=job_id,video_id=video_id,owner_id=owner.id,order_id=order_id,status="queued",progress=0,
             message="Видео заказа поставлено в очередь без копирования оригинала",
-            source_language=data.source_language or "",target_language=data.target_language)
+            source_language=data.source_language or "",target_language=data.target_language or "")
     db.add(video);db.add(job);db.commit()
     return {"job_id":job.id,"video_id":video_id,"order_id":order_id,"filename":video.filename,
             "size_bytes":size,"status":job.status}
@@ -947,6 +947,13 @@ def process_job(job_id: str):
         if not rows:
             raise RuntimeError("Речь не распознана. Проверьте звуковую дорожку.")
         detected = source_language or info.language or "unknown"
+        if not target_language:
+            transcript = "\\n".join(x["text"] for x in rows)
+            update_job(job_id, status="done", progress=100,
+                       message="Распознавание оригинала завершено; перевод не запрашивался",
+                       source_language=detected, transcript=transcript, translated_text="",
+                       segments_json=json.dumps(rows, ensure_ascii=False), error="")
+            return
         update_job(job_id, progress=68, message="Перевод текста")
         translation_available = target_language == detected
         if not translation_available:
