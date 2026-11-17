@@ -342,7 +342,8 @@ jobs:
           recognition_job_id = str(uuid.uuid4())
           with app.SessionLocal() as db:
               recognition = app.Job(id=recognition_job_id, video_id=video.id, owner_id=user.id,
-                                    status="queued", progress=0, source_language="", target_language="")
+                                    order_id=77, status="queued", progress=0,
+                                    source_language="", target_language="")
               db.add(recognition); db.commit()
 
           class FakeWhisperModel:
