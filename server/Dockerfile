@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir \
       --extra-index-url https://pypi.org/simple \
       "torch>=1.3.0" && \
     python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('CPU-only PyTorch:', torch.__version__)" && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    python -c "import av; assert av.__version__ == '18.1.0', av.__version__; print('PyAV compatible with faster-whisper:', av.__version__)"
 
 COPY server/app.py ./app.py
 COPY server/rendering.py ./rendering.py
