@@ -268,7 +268,10 @@ route('order', async (id) => {
       if (!picked.length) return;
       let q = S.uploadQueue;
       if (!q || q.orderId !== Number(id)) q = S.uploadQueue = {orderId:Number(id),files:[],totalBytes:0,completedBytes:0,currentLoaded:0,running:false,status:'',ui:null};
-      for (const file of picked) { q.files.push({file,error:null}); q.totalBytes += file.size; }
+      for (const file of picked) {
+        q.files.push({file,error:null,uploadKey:'o'+id+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)});
+        q.totalBytes += file.size;
+      }
       q.ui = {status:attachmentStatus,fill:attachmentProgressFill,retry:retryUploadButton};
       q.status = 'Добавлено файлов: ' + picked.length + '. Начинаем загрузку…';
       updateOrderUploadUI(q);
@@ -463,7 +466,7 @@ async function runOrderAttachmentQueue(orderId) {
         q.currentLoaded = Math.min(item.file.size, loaded);
         q.status = 'Загрузка ' + item.file.name;
         updateOrderUploadUI(q);
-      });
+      }, item.uploadKey);
       q.completedBytes += item.file.size;
       q.files = q.files.filter((x) => x !== item);
       q.currentLoaded = 0;
@@ -531,7 +534,7 @@ route('new', async () => {
       }
       const selected = [...D.files];
       if (selected.length) {
-        S.uploadQueue = {orderId:Number(orderId),files:selected.map((file)=>({file,error:null})),
+        S.uploadQueue = {orderId:Number(orderId),files:selected.map((file)=>({file,error:null,uploadKey:'o'+orderId+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)})),
           totalBytes:selected.reduce((sum,file)=>sum+file.size,0),completedBytes:0,currentLoaded:0,running:false,status:'Открываем заказ…',ui:null};
       }
       S.draft = null;
