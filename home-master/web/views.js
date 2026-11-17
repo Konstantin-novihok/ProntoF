@@ -368,7 +368,7 @@ route('new', async () => {
   const title = h('input', {}), descr = h('textarea', {}), address = h('input', {});
   const svc = selectEl([{value: '', label: '—'}, ...(S.pub.service_types || []).map((x) => ({value: x, label: x}))], '');
   const dep = selectEl([{value: '', label: '—'}, ...deps.map((x) => ({value: x.id, label: x.name}))], '');
-  const cli = selectEl([{value: '', label: '—'}, ...clients.map((x) => ({value: x.id, label: personName(x) + (x.company_name ? ' · ' + x.company_name : ''))}))], '');
+  const cli = selectEl([{value: '', label: '—'}, ...clients.map((x) => ({value: x.id, label: personName(x) + (x.company_name ? ' · ' + x.company_name : '')}))], '');
   const loc = h('div', {class: 'muted', style: 'margin:8px 0'});
   const showLoc = () => { loc.textContent = D.lat != null ? `${t('location')}: ${D.lat.toFixed(5)}, ${D.lon.toFixed(5)}` : t('location_none'); };
   showLoc();
