@@ -202,13 +202,17 @@ async function uploadFiles(path, files, extra) {
 }
 
 // Загрузка большого файла с отображением реального прогресса браузера.
-function uploadFileWithProgress(path, file, onProgress) {
+function uploadFileWithProgress(path, file, onProgress, uploadKey) {
   return new Promise((resolve, reject) => {
     const fd = new FormData();
     fd.append('file', file, file.name || 'upload.bin');
     const xhr = new XMLHttpRequest();
     xhr.open('POST', path);
     if (S.token) xhr.setRequestHeader('Authorization', 'Bearer ' + S.token);
+    if (uploadKey) {
+      xhr.setRequestHeader('X-Client-Upload-ID', uploadKey);
+      xhr.setRequestHeader('X-Content-Size', String(file.size));
+    }
     xhr.upload.onprogress = (event) => {
       if (onProgress && event.lengthComputable) onProgress(event.loaded, event.total);
     };
