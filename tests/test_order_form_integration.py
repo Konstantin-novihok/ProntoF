@@ -75,3 +75,7 @@ def test_order_form_reference_ids_and_complete_file_upload():
             assert stored_path.read_bytes() == payload
         assert uploaded.json()["size"] == len(payload)
         print("Order reference IDs and complete single-request video attachment passed on isolated SQLite.")
+
+
+if __name__ == "__main__":
+    test_order_form_reference_ids_and_complete_file_upload()
