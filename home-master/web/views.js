@@ -155,14 +155,14 @@ route('order', async (id) => {
   const attachmentProgress = h('div', {class:'upload-progress'}, attachmentProgressFill);
   const activeUpload = S.uploadQueue && S.uploadQueue.orderId === Number(id) ? S.uploadQueue : null;
   let retryUploadButton = null;
+  retryUploadButton = h('button', {class:'ghost small', disabled:!activeUpload || activeUpload.running || !activeUpload.files.length,
+    onclick:guard(async () => { await runOrderAttachmentQueue(id); })}, 'Повторить незавершённые файлы');
   if (activeUpload) {
-    activeUpload.ui = {status:attachmentStatus,fill:attachmentProgressFill,retry:null};
+    activeUpload.ui = {status:attachmentStatus,fill:attachmentProgressFill,retry:retryUploadButton};
     attachmentStatus.textContent = activeUpload.status || '';
     attachmentProgressFill.style.width = (activeUpload.percent || 0) + '%';
-    retryUploadButton = h('button', {class:'ghost small', disabled:activeUpload.running || !activeUpload.files.length,
-      onclick:guard(async () => { await runOrderAttachmentQueue(id); })}, 'Повторить незавершённые файлы');
-    activeUpload.ui.retry = retryUploadButton;
   }
+  if (canEditOrder) actions.append(retryUploadButton);
   const act = (key, fn, cls) => actions.append(h('button', {class: cls || 'ghost', onclick: guard(fn)}, t(key)));
   if (canEditOrder) actions.append(h('button', {class:'ghost', onclick:guard(async () => {
     const values = await formModal('Редактировать заказ', [
@@ -369,7 +369,7 @@ route('order', async (id) => {
   const fin = [1, 2, 3, 4, 7, 6].includes(role) ? await financePanel(o) : null;
   return h('div', {}, h('div', {class: 'row'}, back('#/orders'), h('h1', {class: 'grow'}, `#${o.id} ${o.title}`)),
     h('div', {class: 'card'}, kvList(info)), actions,
-    activeUpload ? h('div', {class:'card'}, h('b', {}, 'Загрузка вложений'), attachmentStatus, attachmentProgress, retryUploadButton) : null,
+    activeUpload || canEditOrder ? h('div', {class:'card'}, h('b', {}, 'Загрузка вложений'), attachmentStatus, attachmentProgress) : null,
     attachmentStatus, attachmentProgress, mapBox, collaboration, fin, videoProcessing,
     h('h2', {}, t('comments')), d.comments.length ? d.comments.map((c) => h('div', {class: 'comment' + (c.public ? '' : ' internal')},
       h('b', {}, c.author), ' ', h('span', {class: 'muted small'}, fmtDate(c.created_at) + (c.public ? '' : ` (${t('internal')})`)), h('div', {}, c.text))) : h('p', {class: 'muted'}, t('no_data')),
@@ -443,7 +443,8 @@ function updateOrderUploadUI(q) {
   q.percent = percent;
   if (q.ui) {
     q.ui.fill.style.width = percent + '%';
-    q.ui.status.textContent = q.status || '';
+    q.ui.status.textContent = (q.status || '') + (q.running ? ' · ' + percent + '%' : '');
+    if (q.ui.retry) q.ui.retry.disabled = q.running || !q.files.length;
   }
 }
 async function runOrderAttachmentQueue(orderId) {
@@ -460,7 +461,7 @@ async function runOrderAttachmentQueue(orderId) {
     try {
       await uploadFileWithProgress('/orders/' + orderId + '/media', item.file, (loaded) => {
         q.currentLoaded = Math.min(item.file.size, loaded);
-        q.status = 'Загрузка ' + item.file.name + ' — ' + q.percent + '%';
+        q.status = 'Загрузка ' + item.file.name;
         updateOrderUploadUI(q);
       });
       q.completedBytes += item.file.size;
