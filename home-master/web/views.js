@@ -370,7 +370,7 @@ route('order', async (id) => {
   return h('div', {}, h('div', {class: 'row'}, back('#/orders'), h('h1', {class: 'grow'}, `#${o.id} ${o.title}`)),
     h('div', {class: 'card'}, kvList(info)), actions,
     activeUpload || canEditOrder ? h('div', {class:'card'}, h('b', {}, 'Загрузка вложений'), attachmentStatus, attachmentProgress) : null,
-    attachmentStatus, attachmentProgress, mapBox, collaboration, fin, videoProcessing,
+    mapBox, collaboration, fin, videoProcessing,
     h('h2', {}, t('comments')), d.comments.length ? d.comments.map((c) => h('div', {class: 'comment' + (c.public ? '' : ' internal')},
       h('b', {}, c.author), ' ', h('span', {class: 'muted small'}, fmtDate(c.created_at) + (c.public ? '' : ` (${t('internal')})`)), h('div', {}, c.text))) : h('p', {class: 'muted'}, t('no_data')),
     h('h2', {}, t('media')), media.length ? h('div', {class: 'gallery'}, media) : h('p', {class: 'muted'}, t('no_data')));
