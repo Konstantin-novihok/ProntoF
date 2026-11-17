@@ -433,6 +433,19 @@ jobs:
               assert len(wav_buffer.getvalue()) > 1024, voice_id
           print("Piper generated speech and FFmpeg produced a playable MP4; LT/LV voices also synthesized.")
           PY
+      - name: Test order form reference loading, empty and API error states
+        run: node --test tests/order-form.test.cjs
+      - name: Test order reference IDs and complete attachment on isolated SQLite
+        env:
+          DATA_DIR: ${{ runner.temp }}/hm-order-form-test
+          ORDER_DATA_DIR: ${{ runner.temp }}/hm-order-form-test/shared
+          WEB_DIR: ${{ github.workspace }}/home-master/web
+          SECRET_KEY: ci-order-form-secret-key-012345678901234567890123456789
+          OWNER_PASSWORD: ci-order-form-owner-password
+          PYTHONPATH: ${{ github.workspace }}/home-master/server
+        run: |
+          mkdir -p "$DATA_DIR" "$ORDER_DATA_DIR"
+          python tests/test_order_form_integration.py
       - name: Check Home Master browser JavaScript
         run: |
           set -euo pipefail
