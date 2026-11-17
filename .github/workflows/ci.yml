@@ -273,7 +273,7 @@ jobs:
           python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('CPU-only PyTorch:', torch.__version__)"
           python -m pip install -r server/requirements.txt
           mkdir -p "$RUNNER_TEMP/prontof-worker-smoke" "$RUNNER_TEMP/prontof-piper-voices"
-          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" PIPER_VOICE_DIR="$RUNNER_TEMP/prontof-piper-voices" INTERNAL_API_KEY="ci-internal-key" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
+          DATA_DIR="$RUNNER_TEMP/prontof-worker-smoke" ORDER_DATA_DIR="$RUNNER_TEMP/prontof-order-shared" PIPER_VOICE_DIR="$RUNNER_TEMP/prontof-piper-voices" INTERNAL_API_KEY="ci-internal-key" SECRET_KEY="ci-worker-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-worker-password" PYTHONPATH="$GITHUB_WORKSPACE/server" python - <<'PY'
           import json, subprocess, uuid
           from pathlib import Path
           import app
@@ -349,6 +349,25 @@ jobs:
           from fastapi.testclient import TestClient
           client = TestClient(app.app)
           internal_headers = {"x-prontof-internal-key":"ci-internal-key"}
+          # Playback must resolve originals stored in the shared order dataset, not only /data/videos.
+          from pathlib import Path
+          shared_relative = Path("orders/77/customer/original_video/shared-original.mp4")
+          shared_file = app.ORDER_DATA_DIR / shared_relative
+          shared_file.parent.mkdir(parents=True, exist_ok=True)
+          shared_payload = b"shared-order-video-playback-regression"
+          shared_file.write_bytes(shared_payload)
+          shared_video_id = str(uuid.uuid4())
+          with app.SessionLocal() as db:
+              shared_video = app.Video(id=shared_video_id, owner_id=user.id, filename="shared-original.mp4",
+                                       stored_name=shared_relative.as_posix(), size_bytes=len(shared_payload),
+                                       visibility="private")
+              db.add(shared_video); db.commit()
+          auth_headers = {"Authorization":"Bearer " + app.create_token(user)}
+          playback_token = client.get(f"/api/videos/{shared_video_id}/playback-token",headers=auth_headers)
+          assert playback_token.status_code == 200, playback_token.text
+          streamed = client.get(f"/api/videos/{shared_video_id}/source?token={playback_token.json()['token']}")
+          assert streamed.status_code == 200 and streamed.content == shared_payload, streamed.text
+          print("Original playback resolved successfully from the shared order dataset.")
           saved = client.put(f"/internal/jobs/{recognition_job_id}/transcript",
                               headers=internal_headers, json={"transcript":"Corrected original speech"})
           assert saved.status_code == 200 and saved.json()["saved"], saved.text
