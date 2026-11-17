@@ -971,9 +971,17 @@ def order_detail(oid: int, user: User = Depends(current_user), db: Session = Dep
     if user.role in (CLIENT, STAFF):      # заказчик не видит внутренние заметки
         cq = cq.where(Comment.public)
     comments = [comment_out(db, c) for c in db.scalars(cq.order_by(Comment.id))]
-    media = [dict(id=m.id, original=m.original, mime=m.mime, user_id=m.user_id, size=m.size,
-                  uploader=(db.get(User, m.user_id).full_name if db.get(User, m.user_id) else "?"))
-             for m in db.scalars(select(Media).where(Media.order_id == oid).order_by(Media.id))]
+    all_media = list(db.scalars(select(Media).where(Media.order_id == oid).order_by(Media.id)))
+    media = []
+    for m in all_media:
+        deleted = os.path.basename(m.filename or "").startswith("DELETE")
+        if deleted and user.role not in ADMINS:
+            continue
+        uploader = db.get(User, m.user_id)
+        media.append(dict(id=m.id, original=m.original, mime=m.mime, user_id=m.user_id, size=m.size,
+                          uploader=(uploader.full_name if uploader else "?"),
+                          deleted=deleted if user.role in ADMINS else False,
+                          server_name=os.path.basename(m.filename) if user.role in ADMINS else None))
     return dict(order=order_out(db, o, user), comments=comments, media=media)
 
 
@@ -1238,6 +1246,8 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
             media = db.get(Media, receipt.media_id)
             if not media:
                 raise HTTPException(409, "Upload receipt points to missing media")
+            if os.path.basename(media.filename or "").startswith("DELETE"):
+                raise HTTPException(409, "This upload was deleted; start a new upload with a new ID")
             return dict(id=media.id, original=media.original, mime=media.mime, size=media.size,
                         kind=EXT_KIND.get(os.path.splitext(media.filename)[1].lstrip("."), "doc"))
     expected_hash = (request.headers.get("x-content-sha256") or "").strip().lower()
@@ -1286,22 +1296,33 @@ def delete_order_media(oid: int, mid: int, user: User = Depends(current_user), d
     if o.created_by != user.id: raise HTTPException(403, "Удалять вложения может только создатель заказа")
     media = db.get(Media, mid)
     if not media or media.order_id != oid: raise HTTPException(404, "Файл не найден в этом заказе")
-    path = media_path(media)
-    if os.path.isfile(path):
-        try:
-            os.remove(path)
-        except OSError as exc:
-            log(db, user, "delete_order_media_failed", "order", oid,
-                json.dumps({"media_id": mid, "filename": media.original, "error": str(exc)}, ensure_ascii=False))
-            db.commit()
-            raise HTTPException(500, "Не удалось удалить файл с диска; запись вложения сохранена")
-    for receipt in db.scalars(select(MediaUploadReceipt).where(MediaUploadReceipt.media_id == mid)):
-        db.delete(receipt)
-    db.delete(media)
-    log(db, user, "delete_order_media", "order", oid,
-        json.dumps({"media_id": mid, "filename": media.original, "size": media.size}, ensure_ascii=False))
-    db.commit()
-    return {"ok": True, "deleted_from_disk": True}
+    old_path = media_path(media)
+    old_name = os.path.basename(media.filename or "")
+    if old_name.startswith("DELETE"):
+        raise HTTPException(409, "Вложение уже помечено как удалённое")
+    if not os.path.isfile(old_path):
+        log(db, user, "delete_order_media_failed", "order", oid,
+            json.dumps({"media_id": mid, "filename": media.original, "error": "Файл на диске не найден"}, ensure_ascii=False))
+        db.commit()
+        raise HTTPException(404, "Файл вложения не найден на сервере")
+    deleted_name = "DELETE_" + old_name
+    new_path = os.path.join(os.path.dirname(old_path), deleted_name)
+    try:
+        if os.path.exists(new_path):
+            raise FileExistsError("DELETE-prefixed destination already exists")
+        os.replace(old_path, new_path)
+        media.filename = os.path.relpath(new_path, DATA_DIR).replace(os.sep, "/")
+        log(db, user, "delete_order_media", "order", oid,
+            json.dumps({"media_id": mid, "filename": media.original, "server_name": deleted_name,
+                        "size": media.size, "storage_action": "renamed_with_DELETE_prefix"}, ensure_ascii=False))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log(db, user, "delete_order_media_failed", "order", oid,
+            json.dumps({"media_id": mid, "filename": media.original, "error": str(exc)}, ensure_ascii=False))
+        db.commit()
+        raise HTTPException(500, "Не удалось пометить файл как удалённый; исходный файл сохранён")
+    return {"ok": True, "deleted_from_disk": False, "marked_deleted": True, "server_name": deleted_name}
 
 @app.get("/media/{mid}")
 def get_media(mid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -1309,6 +1330,8 @@ def get_media(mid: int, user: User = Depends(current_user), db: Session = Depend
     if not m:
         raise HTTPException(404)
     get_order(db, user, m.order_id)   # проверка права видеть заказ
+    if os.path.basename(m.filename or "").startswith("DELETE") and user.role not in ADMINS:
+        raise HTTPException(404, "Вложение недоступно")
     return file_response(media_path(m), m.original, EXT_KIND.get(os.path.splitext(m.filename)[1].lstrip(".") or os.path.splitext(m.original)[1].lstrip("."), "doc"), m.mime)
 
 
