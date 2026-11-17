@@ -349,6 +349,18 @@ jobs:
           from fastapi.testclient import TestClient
           client = TestClient(app.app)
           internal_headers = {"x-prontof-internal-key":"ci-internal-key"}
+          saved = client.put(f"/internal/jobs/{recognition_job_id}/transcript",
+                              headers=internal_headers, json={"transcript":"Corrected original speech"})
+          assert saved.status_code == 200 and saved.json()["saved"], saved.text
+          with app.SessionLocal() as db:
+              recognized = db.get(app.Job, recognition_job_id)
+              assert recognized.transcript == "Corrected original speech"
+              assert json.loads(recognized.segments_json)[0]["text"] == "Corrected original speech"
+          retranslated = client.post(f"/internal/jobs/{recognition_job_id}/retranslate",
+                                     headers=internal_headers, json={"target_language":"uk"})
+          assert retranslated.status_code == 200, retranslated.text
+          assert retranslated.json()["status"] == "queued"
+          print("Edited original subtitles persist and translation can be queued separately.")
           downloaded = client.get(f"/internal/jobs/{job_id}/render/download",headers=internal_headers)
           assert downloaded.status_code == 200 and len(downloaded.content) > 1024
           assert rendered.is_file(), "download endpoint must not delete before acknowledgment"
