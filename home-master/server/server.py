@@ -912,6 +912,33 @@ def comment_out(db: Session, c: Comment):
                 text=c.text, public=c.public, kind=c.kind, created_at=c.created_at.isoformat())
 
 
+class OrderUpdateIn(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=20000)
+    address: Optional[str] = Field(default=None, max_length=300)
+    service_type: Optional[str] = Field(default=None, max_length=80)
+
+@app.patch("/orders/{oid}")
+def update_order(oid: int, b: OrderUpdateIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    o = get_order(db, user, oid)
+    if o.created_by != user.id:
+        raise HTTPException(403, "Редактировать заказ может только его создатель")
+    changes = b.model_dump(exclude_unset=True)
+    if not changes:
+        return order_out(db, o, user)
+    if "title" in changes:
+        title = (changes["title"] or "").strip()
+        if not title:
+            raise HTTPException(400, "Название заказа не может быть пустым")
+        o.title = title
+    if "description" in changes: o.description = changes["description"] or ""
+    if "address" in changes: o.address = changes["address"] or ""
+    if "service_type" in changes: o.service_type = (changes["service_type"] or "").strip()[:80]
+    log(db, user, "edit_order", "order", o.id, "creator updated order details")
+    db.commit()
+    db.refresh(o)
+    return order_out(db, o, user)
+
 @app.get("/orders/{oid}")
 def order_detail(oid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     o = get_order(db, user, oid)
@@ -1116,14 +1143,19 @@ async def save_stream(file: UploadFile, folder: str, ext: str):
     name = uuid.uuid4().hex + ("." + ext if ext else "")
     path = os.path.join(folder, name)
     size, limit = 0, MAX_UPLOAD_MB * 1024 * 1024
-    with open(path, "wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > limit:
-                f.close()
-                os.remove(path)
-                raise HTTPException(413, "File too large")
-            f.write(chunk)
+    try:
+        with open(path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(413, "File too large")
+                f.write(chunk)
+    except BaseException:
+        try:
+            if os.path.exists(path): os.remove(path)
+        except OSError:
+            pass
+        raise
     return name, size
 
 
@@ -1216,6 +1248,22 @@ async def upload(oid: int, request: Request, file: UploadFile = File(...),
             os.remove(path)
         raise HTTPException(409, "Upload receipt conflict; retry with the same upload ID")
     return dict(id=m.id, original=m.original, mime=m.mime, size=size, kind=kind)
+
+@app.delete("/orders/{oid}/media/{mid}")
+def delete_order_media(oid: int, mid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    o = get_order(db, user, oid)
+    if o.created_by != user.id: raise HTTPException(403, "Удалять вложения может только создатель заказа")
+    media = db.get(Media, mid)
+    if not media or media.order_id != oid: raise HTTPException(404, "Файл не найден в этом заказе")
+    path = media_path(media)
+    for receipt in db.scalars(select(MediaUploadReceipt).where(MediaUploadReceipt.media_id == mid)): db.delete(receipt)
+    db.delete(media)
+    log(db, user, "delete_order_media", "order", oid, media.original)
+    db.commit()
+    if os.path.isfile(path):
+        try: os.remove(path)
+        except OSError: pass
+    return {"ok": True}
 
 @app.get("/media/{mid}")
 def get_media(mid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
