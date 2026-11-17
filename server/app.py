@@ -693,6 +693,28 @@ class InternalRetranslateIn(BaseModel):
     target_language: str = Field(min_length=2, max_length=8)
     source_language: Optional[str] = None
 
+class TranscriptUpdateIn(BaseModel):
+    transcript: str = Field(max_length=2_000_000)
+
+@app.put("/internal/jobs/{job_id}/transcript")
+def internal_update_transcript(job_id: str, data: TranscriptUpdateIn, request: Request,
+                               db: Session = Depends(db_session)):
+    require_internal(request)
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Задача не найдена")
+    if job.status != "done":
+        raise HTTPException(409, "Редактировать субтитры можно после завершения распознавания")
+    job.transcript = data.transcript
+    rows = json.loads(job.segments_json or "[]")
+    edited_lines = data.transcript.splitlines()
+    if len(edited_lines) == len(rows):
+        for row, line in zip(rows, edited_lines):
+            row["text"] = line
+        job.segments_json = json.dumps(rows, ensure_ascii=False)
+    db.commit()
+    return {"job_id": job.id, "saved": True, "transcript": job.transcript}
+
 @app.post("/internal/jobs/{job_id}/retranslate")
 def internal_retranslate(job_id: str, data: InternalRetranslateIn, request: Request,
                          db: Session = Depends(db_session)):
