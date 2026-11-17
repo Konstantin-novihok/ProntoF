@@ -507,14 +507,54 @@ async function runOrderAttachmentQueue(orderId) {
 }
 
 // ───────────── Новый заказ ─────────────
-route('new', async () => {
+route('new', () => {
   const D = S.draft || (S.draft = {files: [], lat: null, lon: null, createdOrderId: null});
-  const [deps, clients] = await Promise.all([api('GET', '/departments'), [1, 2, 7].includes(S.me.role) ? api('GET', '/users?role=4') : []]);
   const role = S.me.role;
   const title = h('input', {}), descr = h('textarea', {}), address = h('input', {});
   const svc = selectEl([{value: '', label: '—'}, ...(S.pub.service_types || []).map((x) => ({value: x, label: x}))], '');
-  const dep = selectEl([{value: '', label: '—'}, ...deps.map((x) => ({value: x.id, label: x.name}))], '');
-  const cli = selectEl([{value: '', label: '—'}, ...clients.map((x) => ({value: x.id, label: personName(x) + (x.company_name ? ' · ' + x.company_name : '')}))], '');
+  const dep = selectEl([{value: '', label: 'Загрузка направлений…'}], '');
+  const cli = selectEl([{value: '', label: 'Загрузка заказчиков…'}], '');
+  dep.disabled = true;
+  cli.disabled = true;
+  const depStatus = h('p', {class:'muted small', role:'status'}, 'Загрузка справочника направлений…');
+  const cliStatus = h('p', {class:'muted small', role:'status'}, [1, 2, 7].includes(role) ? 'Загрузка справочника заказчиков…' : '');
+  const referenceStatus = (state, label, count) => {
+    if (state === 'ready') return label + ': загружено ' + count + '.';
+    if (state === 'empty') return label + ': справочник пуст. Добавьте записи в разделе администрирования.';
+    if (state === 'error') return label + ': не удалось загрузить данные. Проверьте соединение и повторите попытку.';
+    return label + ': загрузка…';
+  };
+  const refreshReferences = async () => {
+    dep.disabled = true;
+    depStatus.textContent = 'Загрузка справочника направлений…';
+    if ([1, 2, 7].includes(role)) {
+      cli.disabled = true;
+      cliStatus.textContent = 'Загрузка справочника заказчиков…';
+    }
+    const refs = await loadOrderFormReferences(api, role);
+    const depItems = refs.departments.items;
+    dep.replaceChildren(h('option', {value:''}, depItems.length ? '—' : '— (нет направлений)'),
+      ...depItems.map((x) => h('option', {value:String(x.id)}, x.name)));
+    dep.disabled = false;
+    depStatus.textContent = refs.departments.state === 'error'
+      ? referenceStatus('error', 'Направления')
+      : referenceStatus(refs.departments.state, 'Направления', depItems.length);
+    if (refs.departments.state === 'error') {
+      depStatus.append(' ', h('button', {class:'ghost small', onclick:guard(refreshReferences)}, 'Повторить'));
+    }
+    if ([1, 2, 7].includes(role)) {
+      const clientItems = refs.clients.items;
+      cli.replaceChildren(h('option', {value:''}, clientItems.length ? '—' : '— (нет заказчиков)'),
+        ...clientItems.map((x) => h('option', {value:String(x.id)}, personName(x) + (x.company_name ? ' · ' + x.company_name : ''))));
+      cli.disabled = false;
+      cliStatus.textContent = refs.clients.state === 'error'
+        ? referenceStatus('error', 'Заказчики')
+        : referenceStatus(refs.clients.state, 'Заказчики', clientItems.length);
+      if (refs.clients.state === 'error') {
+        cliStatus.append(' ', h('button', {class:'ghost small', onclick:guard(refreshReferences)}, 'Повторить'));
+      }
+    }
+  };
   const loc = h('div', {class: 'muted', style: 'margin:8px 0'});
   const showLoc = () => { loc.textContent = D.lat != null ? `${t('location')}: ${D.lat.toFixed(5)}, ${D.lon.toFixed(5)}` : t('location_none'); };
   showLoc();
@@ -544,7 +584,7 @@ route('new', async () => {
       if (!orderId) {
         uploadStatus.textContent = 'Создание заказа…';
         const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
-          department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null};
+          department_id: dep.value ? Number(dep.value) : null, client_id: cli.value ? Number(cli.value) : null};
         const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
         orderId = o.id;
         D.createdOrderId = orderId;
@@ -569,9 +609,15 @@ route('new', async () => {
     files.redraw();
     refreshPreview();
   });
+  refreshReferences().catch((error) => {
+    depStatus.textContent = 'Ошибка загрузки справочников: ' + (error && error.message ? error.message : 'неизвестная ошибка');
+    dep.disabled = true;
+    if ([1, 2, 7].includes(role)) { cliStatus.textContent = 'Ошибка загрузки справочников.'; cli.disabled = true; }
+  });
   return h('div', {class: 'card'}, h('h1', {}, t('new_order')),
     h('label', {}, t('title')), title, h('label', {}, t('service_type')), svc, h('label', {}, t('description')), descr, h('label', {}, t('address')), address,
-    h('label', {}, t('department')), dep, [1, 2, 7].includes(S.me.role) ? [h('label', {}, t('client')), cli] : null,
+    h('label', {}, t('department')), dep, depStatus,
+    [1, 2, 7].includes(role) ? [h('label', {}, t('client')), cli, cliStatus] : null,
     h('div', {class: 'row', style: 'margin-top:10px'},
       h('button', {class: 'ghost', onclick: guard(async () => { const p = await gpsLocate(); D.lat = p.lat; D.lon = p.lon; showLoc(); })}, t('use_gps')),
       h('button', {class: 'ghost', onclick: guard(async () => { const p = await mapPicker(D.lat || 50.4501, D.lon || 30.5234); if (p) { D.lat = p.lat; D.lon = p.lon; showLoc(); } })}, t('set_location'))),
