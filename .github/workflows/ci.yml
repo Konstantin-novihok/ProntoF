@@ -110,6 +110,25 @@ jobs:
                       filename="original.mp4", target_language="")
                   db.add(original_only); db.commit()
                   assert db.get(OrderVideoJob, original_only.id).target_language == ""
+              # The single order player source endpoint must stream the shared original, including byte ranges.
+              from types import SimpleNamespace
+              from unittest.mock import AsyncMock, patch
+              import video_processing
+              shared_rel = Path("orders") / str(oid) / "customer" / "original_video" / "ci-original.mp4"
+              shared_path = Path(server.ORDER_DATA_DIR) / shared_rel
+              shared_path.parent.mkdir(parents=True, exist_ok=True)
+              shared_bytes = b"0123456789abcdef-original-video-bytes"
+              shared_path.write_bytes(shared_bytes)
+              remote_job_id = original_only.remote_job_id
+              remote_info = {"order_id": oid, "stored_name": shared_rel.as_posix(), "video_id": "ci-shared"}
+              fake_remote = SimpleNamespace(json=lambda: remote_info)
+              source_url = f"/orders/{oid}/video-processing/{remote_job_id}/source"
+              with patch.object(video_processing, "_remote", new=AsyncMock(return_value=fake_remote)):
+                  full_source = client.get(source_url, headers=headers("e1"))
+                  partial_source = client.get(source_url, headers={**headers("e1"), "Range":"bytes=0-5"})
+              assert full_source.status_code == 200 and full_source.content == shared_bytes, full_source.text
+              assert partial_source.status_code == 206 and partial_source.content == shared_bytes[:6], partial_source.text
+              print("Home Master original player source streams shared files and supports byte-range seeking.")
               assert client.get("/orders",headers=headers("e2")).status_code == 200
               assigned = client.post(f"/orders/{oid}/participants",headers=headers("owner"),json={"executor_id":ids["e2"]})
               assert assigned.status_code == 200, assigned.text
