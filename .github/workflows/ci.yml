@@ -30,6 +30,9 @@ jobs:
           DATA_DIR="$RUNNER_TEMP/hm-smoke" WEB_DIR="$GITHUB_WORKSPACE/home-master/web" SECRET_KEY="ci-smoke-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-smoke-password" PYTHONPATH="$GITHUB_WORKSPACE/home-master/server" python - <<'PY'
           import server
           paths = set(server.app.openapi()["paths"])
+          methods = server.app.openapi()["paths"]
+          assert "patch" in methods["/orders/{oid}"]
+          assert "delete" in methods["/orders/{oid}/media/{mid}"]
           mounted = {getattr(route, "path", None) for route in server.app.routes}
           assert "/app" in mounted
           assert "/orders/{oid}/video-processing/uploads/{upload_id}" in paths
