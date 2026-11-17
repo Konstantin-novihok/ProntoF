@@ -37,6 +37,7 @@ jobs:
           assert "/orders/{oid}/video-processing" in paths
           assert "/orders/{oid}/video-processing/from-job/{job_id}" in paths
           assert "/orders/{oid}/video-processing/from-media/{mid}" in paths
+          assert "/orders/{oid}/video-processing/{job_id}/transcript" in paths
           assert "/orders/{oid}/video-processing/{job_id}/source" in paths
           assert "/orders/{oid}/video-processing/{job_id}/render" in paths
           assert "/orders/{oid}/video-processing/{job_id}/render/preview" in paths
@@ -183,6 +184,9 @@ jobs:
           assert "/internal/jobs/{job_id}/render/preview" in paths
           assert "/internal/jobs/{job_id}/render/download" in paths
           assert "/internal/jobs/{job_id}/render/ack" in paths
+          from app import InternalImportVideoIn
+          assert not InternalImportVideoIn.model_fields["target_language"].is_required()
+          assert "/internal/jobs/{job_id}/transcript" in paths
           from rendering import render_translated_video, voice_for_language
           assert voice_for_language("uk") == "uk_UA-ukrainian_tts-medium"
           assert voice_for_language("ru")
