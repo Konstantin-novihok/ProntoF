@@ -201,6 +201,33 @@ async function uploadFiles(path, files, extra) {
   if (failed.length) throw new Error(failed.join('; '));
 }
 
+// Загрузка большого файла с отображением реального прогресса браузера.
+function uploadFileWithProgress(path, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('file', file, file.name || 'upload.bin');
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', path);
+    if (S.token) xhr.setRequestHeader('Authorization', 'Bearer ' + S.token);
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) onProgress(event.loaded, event.total);
+    };
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText || 'null'); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else {
+        let detail = data && data.detail;
+        if (Array.isArray(detail)) detail = detail.map((x) => x.msg).join('; ');
+        reject(new Error(detail || ('Ошибка загрузки файла: HTTP ' + xhr.status)));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Соединение прервано при загрузке файла: ' + file.name));
+    xhr.onabort = () => reject(new Error('Загрузка отменена: ' + file.name));
+    xhr.send(fd);
+  });
+}
+
 // ───────────── Окна ─────────────
 function modal(title, body, onClose) {
   const back = h('div', {class: 'modal-back'});
