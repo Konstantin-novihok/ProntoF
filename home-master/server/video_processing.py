@@ -316,6 +316,19 @@ def _video_job_row(oid: int, job_id: str, user: User, db: Session):
     return row
 
 
+class TranscriptUpdate(BaseModel):
+    transcript: str = Field(max_length=2_000_000)
+
+@router.put("/orders/{oid}/video-processing/{job_id}/transcript")
+async def update_order_video_transcript(oid: int, job_id: str, data: TranscriptUpdate,
+                                       user: User = Depends(current_user), db: Session = Depends(get_db)):
+    _video_job_row(oid, job_id, user, db)
+    result = await _remote("PUT", f"/internal/jobs/{job_id}/transcript", json=data.model_dump())
+    log(db, user, "video_transcript_corrected", "order", oid, f"job={job_id}")
+    db.commit()
+    return result.json()
+
+
 @router.post("/orders/{oid}/video-processing/{job_id}/render", status_code=202)
 async def render_translated_video(oid: int, job_id: str,
                                   user: User = Depends(current_user), db: Session = Depends(get_db)):
