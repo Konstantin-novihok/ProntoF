@@ -33,6 +33,7 @@ jobs:
           methods = server.app.openapi()["paths"]
           assert "patch" in methods["/orders/{oid}"]
           assert "delete" in methods["/orders/{oid}/media/{mid}"]
+          assert "post" in methods["/orders/{oid}/finalize"]
           mounted = {getattr(route, "path", None) for route in server.app.routes}
           assert "/app" in mounted
           assert "/orders/{oid}/video-processing/uploads/{upload_id}" in paths
