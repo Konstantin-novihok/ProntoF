@@ -204,10 +204,17 @@ jobs:
               changes = json.loads(edit_event["details"])
               assert changes["title"] == {"before":"Immediate upload order","after":"Updated upload order"}
               assert changes["service_type"] == {"before":"Repair","after":"Maintenance"}
-              uploaded = client.post(f"/orders/{oid}/media", headers=headers,
+              upload_headers = {**headers, "X-Client-Upload-ID":"ci-proof-file-001",
+                                 "X-Content-Size":str(len(b"complete attachment"))}
+              uploaded = client.post(f"/orders/{oid}/media", headers=upload_headers,
                                      files={"file":("proof.txt",b"complete attachment","text/plain")})
               assert uploaded.status_code == 200, uploaded.text
               mid = uploaded.json()["id"]
+              replay = client.post(f"/orders/{oid}/media", headers=upload_headers,
+                                    files={"file":("proof.txt",b"complete attachment","text/plain")})
+              assert replay.status_code == 200 and replay.json()["id"] == mid, replay.text
+              with server.SessionLocal() as db:
+                  assert len(list(db.scalars(server.select(server.Media).where(server.Media.order_id == oid)))) == 1
               with server.SessionLocal() as db:
                   media = db.get(server.Media, mid)
                   disk_path = Path(server.media_path(media))
