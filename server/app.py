@@ -331,11 +331,13 @@ def video_source(video_id: str, token: str = Query(min_length=20), db: Session =
     if not user or not user.is_active:
         raise HTTPException(401, "Пользователь отключён")
     v = accessible_video(db, video_id, user)
-    path = (VIDEO_DIR / v.stored_name).resolve()
-    if os.path.commonpath([VIDEO_DIR.resolve(), path]) != str(VIDEO_DIR.resolve()) or not path.is_file():
+    try:
+        path = resolve_video_path(v)
+    except FileNotFoundError:
         raise HTTPException(404, "Файл видео отсутствует")
-    media_type = "video/mp4" if path.suffix.lower() == ".mp4" else "application/octet-stream"
-    return FileResponse(path, filename=v.filename, media_type=media_type, content_disposition_type="inline", headers={"Cache-Control":"private, no-store"})
+    import mimetypes
+    media_type = mimetypes.guess_type(v.filename)[0] or "application/octet-stream"
+    return FileResponse(path, filename=v.filename, media_type=media_type, content_disposition_type="inline", headers={"Cache-Control":"private, no-store", "Accept-Ranges":"bytes"})
 
 @app.put("/api/uploads/{upload_id}/chunks/{index}")
 async def upload_chunk(upload_id: str, index: int, request: Request, user: User = Depends(current_user)):
