@@ -68,14 +68,19 @@ CUSTOM_TILE_URL = os.getenv("CUSTOM_TILE_URL", "")          # напр. https://
 
 
 def media_path(media: "Media") -> str:
-    """Новые файлы заказов лежат в DATA_DIR/orders; старые остаются в MEDIA_DIR."""
+    """Resolve order media in either the local data directory or shared order storage."""
     filename = media.filename or ""
     if filename.startswith("orders/"):
-        path = os.path.abspath(os.path.join(ORDER_DATA_DIR, filename))
-        root = os.path.abspath(os.path.join(ORDER_DATA_DIR, "orders"))
-        if os.path.commonpath([root, path]) != root:
-            raise HTTPException(400, "Некорректный путь файла")
-        return path
+        candidates = [
+            (os.path.abspath(os.path.join(ORDER_DATA_DIR, filename)), os.path.abspath(os.path.join(ORDER_DATA_DIR, "orders"))),
+            (os.path.abspath(os.path.join(DATA_DIR, filename)), os.path.abspath(os.path.join(DATA_DIR, "orders"))),
+        ]
+        for path, root in candidates:
+            if os.path.commonpath([root, path]) != root:
+                continue
+            if os.path.isfile(path):
+                return path
+        return candidates[0][0]
     return os.path.join(MEDIA_DIR, filename)
 
 
