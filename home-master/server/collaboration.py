@@ -386,6 +386,7 @@ class ExecutorOrderIn(BaseModel):
  lon:Optional[float]=None
  service_type:str=""
  currency:str="UAH"
+ upload_session:bool=False
 
 @router.post("/orders/create-as-executor")
 def create_order_as_executor(b:ExecutorOrderIn,user:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -398,9 +399,10 @@ def create_order_as_executor(b:ExecutorOrderIn,user:User=Depends(current_user),d
  if not title:raise HTTPException(400,"Укажите название заказа")
  o=Order(title=title,description=b.description[:20000],address=b.address[:300],lat=b.lat,lon=b.lon,
          department_id=user.department_id,client_id=None,created_by=user.id,service_type=b.service_type[:80],currency=cur)
+ if b.upload_session:o.status="uploading"
  db.add(o);db.flush()
  p=OrderParticipant(order_id=o.id,user_id=user.id,assigned_by=user.id,method="self_claim")
- db.add(p);o.executor_id=user.id;o.status="accepted"
+ db.add(p);o.executor_id=user.id;o.status="uploading" if b.upload_session else "accepted"
  log(db,user,"create_order","order",o.id,"created by executor")
  log(db,user,"self_claim_order","order",o.id,f"executor={user.id}")
  db.commit()
