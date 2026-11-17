@@ -166,6 +166,11 @@ route('order', async (id) => {
     toast('Изменения заказа сохранены');
     reload();
   })}, 'Редактировать заказ'));
+  if (canEditOrder && o.status === 'uploading') actions.append(h('button', {class:'go', onclick:guard(async () => {
+    await api('POST', '/orders/' + id + '/finalize', {});
+    toast('Заказ полностью оформлен');
+    reload();
+  })}, 'Завершить оформление заказа'));
   const mapBox = h('div', {});
   if (o.lat != null) {
     act('show_map', async () => {
@@ -276,7 +281,7 @@ route('order', async (id) => {
     modal(t('order_history'), h('div', {}, rows.length ? rows.map((r) => h('div', {class: 'small', style: 'margin:6px 0'}, `${fmtDate(r.created_at)} — ${r.actor}: ${r.action} ${r.details}`)) : t('no_data'),
       h('div', {style: 'margin-top:10px'}, h('button', {onclick: (e) => e.target.closest('.modal-back').remove()}, t('close'))))); });
 
-  const info = [[t('status'), badge(o.status)], [t('service_type'), o.service_type || '-'], [t('description'), o.description || '-'], [t('address'), o.address || '-'],
+  const info = [[t('status'), badge(o.status)], ...(o.status === 'uploading' ? [['Загрузка', 'Заказ ещё не опубликован: вложения не подтверждены. Добавьте недостающие файлы и завершите оформление.']] : []), [t('service_type'), o.service_type || '-'], [t('description'), o.description || '-'], [t('address'), o.address || '-'],
     [t('department'), o.department_name || '-'],
     [t('client'), `${o.client_name || '-'}${o.client_company ? ' · ' + o.client_company : ''}`], [t('created_by'), o.created_by_name || '-'],
     [t('executor'), o.executor_name ? h('span', {}, o.executor_name, o.executor_company ? ' · ' + o.executor_company + ' ' : ' ',
@@ -459,7 +464,7 @@ route('new', async () => {
       if (!orderId) {
         uploadStatus.textContent = 'Создание заказа…';
         const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
-          department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null};
+          department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null, upload_session: true};
         const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
         orderId = o.id;
         D.createdOrderId = orderId;
@@ -487,7 +492,9 @@ route('new', async () => {
         }
       }
       uploadProgressFill.style.width = '100%';
-      uploadStatus.textContent = 'Все выбранные файлы загружены. Заказ полностью сформирован.'
+      uploadStatus.textContent = 'Все выбранные файлы загружены. Завершаем оформление заказа…';
+      await api('POST', '/orders/' + orderId + '/finalize', {});
+      uploadStatus.textContent = 'Заказ полностью сформирован.';
       S.draft = null;
       toast(t('order_created'));
       location.hash = '#/order/' + orderId;
