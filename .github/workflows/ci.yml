@@ -242,6 +242,29 @@ jobs:
               assert any(x["action"] == "delete_order_media" and "proof.txt" in x["details"] for x in history)
               print("Immediate order, creator history, DELETE archive, creator hiding and superuser recovery passed.")
           PY
+      - name: Verify faster-whisper audio decoding against pinned PyAV
+        run: |
+          python - <<'PY'
+          import math
+          import struct
+          import wave
+          from pathlib import Path
+          import av
+          from faster_whisper.audio import decode_audio
+
+          assert av.__version__ == "18.1.0", f"Unexpected PyAV version: {av.__version__}"
+          sample_rate = 16000
+          samples = [int(12000 * math.sin(2 * math.pi * 440 * i / sample_rate)) for i in range(sample_rate)]
+          audio_path = Path("worker-audio-decode-smoke.wav")
+          with wave.open(str(audio_path), "wb") as wav:
+              wav.setnchannels(1)
+              wav.setsampwidth(2)
+              wav.setframerate(sample_rate)
+              wav.writeframes(b"".join(struct.pack("<h", value) for value in samples))
+          decoded = decode_audio(str(audio_path), sampling_rate=sample_rate)
+          assert len(decoded) == sample_rate, f"Unexpected decoded sample count: {len(decoded)}"
+          print(f"faster-whisper decoded WAV successfully with PyAV {av.__version__}")
+          PY
       - name: Import video worker and render a short Ukrainian MP4 with Piper
         run: |
           sudo apt-get update
