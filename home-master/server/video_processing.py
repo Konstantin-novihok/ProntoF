@@ -31,7 +31,7 @@ class OrderVideoJob(Base):
     upload_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     remote_job_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     filename: Mapped[str] = mapped_column(String(255))
-    target_language: Mapped[str] = mapped_column(String(8))
+    target_language: Mapped[str] = mapped_column(String(8), default="")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
 
