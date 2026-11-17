@@ -310,6 +310,32 @@ jobs:
                                 {"start":0.1,"end":1.9,"text":"Hello","translated":"Привіт, це перевірка синтезу мовлення."}
                             ],ensure_ascii=False))
               db.add(job); db.commit()
+          # A no-target job must transcribe the original and finish without translation/rendering.
+          from types import SimpleNamespace
+          from unittest.mock import patch
+          recognition_job_id = str(uuid.uuid4())
+          with app.SessionLocal() as db:
+              recognition = app.Job(id=recognition_job_id, video_id=video.id, owner_id=user.id,
+                                    status="queued", progress=0, source_language="", target_language="")
+              db.add(recognition); db.commit()
+
+          class FakeWhisperModel:
+              def __init__(self, *args, **kwargs):
+                  pass
+              def transcribe(self, *args, **kwargs):
+                  return iter([SimpleNamespace(start=0.1, end=1.5, text=" Original speech ") ]), SimpleNamespace(language="en")
+
+          with patch("faster_whisper.WhisperModel", FakeWhisperModel):
+              app.process_job(recognition_job_id)
+          with app.SessionLocal() as db:
+              recognized = db.get(app.Job, recognition_job_id)
+              assert recognized.status == "done", recognized.error
+              assert recognized.source_language == "en"
+              assert recognized.target_language == ""
+              assert recognized.transcript == "Original speech"
+              assert recognized.translated_text == ""
+          print("Original-only recognition completed without requesting translation.")
+
           render_translated_video(job_id)
           with app.SessionLocal() as db:
               output = db.get(app.RenderedOutput,job_id)
