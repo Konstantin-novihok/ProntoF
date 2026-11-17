@@ -1311,7 +1311,7 @@ def delete_order_media(oid: int, mid: int, user: User = Depends(current_user), d
         if os.path.exists(new_path):
             raise FileExistsError("DELETE-prefixed destination already exists")
         os.replace(old_path, new_path)
-        media.filename = os.path.relpath(new_path, DATA_DIR).replace(os.sep, "/")
+        media.filename = os.path.join(os.path.dirname(media.filename or ""), deleted_name).replace(os.sep, "/")
         log(db, user, "delete_order_media", "order", oid,
             json.dumps({"media_id": mid, "filename": media.original, "server_name": deleted_name,
                         "size": media.size, "storage_action": "renamed_with_DELETE_prefix"}, ensure_ascii=False))
