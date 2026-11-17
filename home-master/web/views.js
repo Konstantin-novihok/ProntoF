@@ -483,6 +483,7 @@ async function runOrderAttachmentQueue(orderId) {
     : 'Все выбранные вложения загружены.';
   updateOrderUploadUI(q);
   if (q.ui && q.ui.retry) q.ui.retry.disabled = !failed;
+  if (location.hash === '#/order/' + orderId) render();
 }
 
 // ───────────── Новый заказ ─────────────
