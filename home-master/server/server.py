@@ -420,7 +420,7 @@ def order_out(db: Session, o: Order, viewer: Optional["User"] = None):
 
 def visible_orders(user: User):
     """ПРАВА ДОСТУПА К ЗАКАЗАМ: единое место, определяющее, кто какие заказы видит."""
-    q = select(Order)
+    q = select(Order).where(or_(Order.status != "uploading", Order.created_by == user.id))
     r = user.role
     if r in (OWNER, ADMIN, OBSERVER):
         return q
@@ -836,6 +836,7 @@ class OrderIn(BaseModel):
     client_id: Optional[int] = None   # только если заказ создаёт владелец/начальник от имени заказчика
     service_type: str = ""            # вид услуги (список настраивает администратор)
     currency: Optional[str] = None      # ISO 4217; defaults to company currency\n    currency: Optional[str] = None  # ISO 4217; omitted = company base currency
+    upload_session: bool = False
 
 
 @app.get("/orders")
@@ -881,6 +882,8 @@ def create_order(b: OrderIn, request: Request, user: User = Depends(current_user
     o = Order(title=b.title.strip() or "-", description=b.description, address=b.address, lat=b.lat, lon=b.lon,
               department_id=b.department_id, client_id=client_id, created_by=user.id,
               service_type=b.service_type.strip()[:80], currency=order_currency)
+    if b.upload_session:
+        o.status = "uploading"
     if user.role == HEAD:
         o.department_id = user.department_id
     db.add(o)
@@ -942,6 +945,18 @@ def update_order(oid: int, b: OrderUpdateIn, user: User = Depends(current_user),
     log(db, user, "edit_order", "order", o.id, "creator updated order details")
     db.commit()
     db.refresh(o)
+    return order_out(db, o, user)
+
+@app.post("/orders/{oid}/finalize")
+def finalize_order_uploads(oid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    o = get_order(db, user, oid)
+    if o.created_by != user.id:
+        raise HTTPException(403, "Завершить оформление может только создатель заказа")
+    if o.status == "uploading":
+        o.status = "accepted" if user.role == EXECUTOR and o.executor_id == user.id else "new"
+        log(db, user, "finalize_order_uploads", "order", o.id, "all selected attachments confirmed by client")
+        db.commit()
+        db.refresh(o)
     return order_out(db, o, user)
 
 @app.get("/orders/{oid}")
