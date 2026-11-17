@@ -285,8 +285,24 @@ route('order', async (id) => {
   }
   if (canEditOrder || ![4, 5].includes(role)) act('order_history', async () => {
     const rows = await api('GET', `/orders/${id}/history`);
-    modal(t('order_history'), h('div', {}, rows.length ? rows.map((r) => h('div', {class: 'small', style: 'margin:6px 0'}, `${fmtDate(r.created_at)} — ${r.actor}: ${r.action} ${r.details}`)) : t('no_data'),
-      h('div', {style: 'margin-top:10px'}, h('button', {onclick: (e) => e.target.closest('.modal-back').remove()}, t('close'))))); });
+    const historyItems = rows.map((r) => {
+      let detail = r.details || '';
+      if (r.action === 'edit_order') {
+        try {
+          const changes = JSON.parse(detail);
+          const names = {title:'Название',service_type:'Вид услуги',description:'Описание',address:'Адрес'};
+          detail = Object.entries(changes).map(([key,value]) =>
+            (names[key] || key) + ': «' + (value.before || '—') + '» → «' + (value.after || '—') + '»').join('; ');
+        } catch (_) {}
+      } else if (r.action === 'delete_order_media') {
+        try { detail = 'Удалён файл: ' + JSON.parse(detail).filename; } catch (_) { detail = 'Вложение удалено'; }
+      } else if (r.action === 'upload_media') detail = 'Добавлен файл: ' + detail;
+      return h('div', {class:'small',style:'margin:8px 0;padding-bottom:8px;border-bottom:1px solid var(--line)'},
+        h('b', {}, fmtDate(r.created_at)), ' — ', r.actor, h('div', {}, detail));
+    });
+    modal(t('order_history'), h('div', {}, historyItems.length ? historyItems : t('no_data'),
+      h('div', {style: 'margin-top:10px'}, h('button', {onclick: (e) => e.target.closest('.modal-back').remove()}, t('close')))));
+  });
 
   const info = [[t('status'), badge(o.status)], ...(o.status === 'uploading' ? [['Загрузка', 'Заказ ещё не опубликован: вложения не подтверждены. Добавьте недостающие файлы и завершите оформление.']] : []), [t('service_type'), o.service_type || '-'], [t('description'), o.description || '-'], [t('address'), o.address || '-'],
     [t('department'), o.department_name || '-'],
