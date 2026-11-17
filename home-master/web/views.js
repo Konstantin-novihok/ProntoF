@@ -166,30 +166,23 @@ route('order', async (id) => {
     const users = (await api('GET', '/staff')).filter((u) => u.role === 3 && u.is_active && u.verification === 'verified' && (role !== 2 || u.department_id === o.department_id));
     if (!users.length) throw new Error(t('no_executors'));
     const uid = await pick(t('assign_executor'), users.map((u) => ({label: personName(u) + (u.company_name ? ' · ' + u.company_name : ''), value: u.id}))); if (uid) await post('assign', {executor_id: uid}); });
-  if (role === 3) {
-    const videoSources = [
-      ...videoJobs.filter((j) => ['done','error'].includes(j.status)).map((j) => ({label:`${j.filename} · ${j.target_language || ''} · ${j.status}`,value:'job:'+j.job_id})),
-      ...d.media.filter((m) => (m.mime || '').startsWith('video/')).map((m) => ({label:m.original,value:'media:'+m.id}))
+  const sourceVideos = d.media.filter((m) => (m.mime || '').startsWith('video/'));
+  if (sourceVideos.length && ![5, 6].includes(role)) {
+    const languages = [
+      ['uk','Українська'],['ru','Русский'],['de','Deutsch'],['fr','Français'],['it','Italiano'],['en','English'],
+      ['ar','العربية'],['pt','Português'],['es','Español'],['bg','Български'],['pl','Polski'],['cs','Čeština'],
+      ['sk','Slovenčina'],['lt','Lietuvių'],['lv','Latviešu'],['no','Norsk']
     ];
-    if (videoSources.length) act('translate_video', async () => {
-      const languages = [
-        ['uk','Українська'],['ru','Русский'],['de','Deutsch'],['fr','Français'],['it','Italiano'],['en','English'],
-        ['ar','العربية'],['pt','Português'],['es','Español'],['bg','Български'],['pl','Polski'],['cs','Čeština'],
-        ['sk','Slovenčina'],['lt','Lietuvių'],['lv','Latviešu'],['no','Norsk']
-      ];
-      const v = await formModal(t('translate_video'), [
-        {key:'source',label:'video_source',type:'select',options:videoSources},
-        {key:'target_language',label:'video_target_language',type:'select',value:'uk',options:languages.map(([value,label])=>({value,label}))}
-      ]);
-      if (!v || !v.source || !v.target_language) return;
-      const [kind,sourceId]=v.source.split(':');
-      const query=new URLSearchParams({target_language:v.target_language});
-      const path=kind==='job'
-        ? `/orders/${id}/video-processing/from-job/${encodeURIComponent(sourceId)}?${query}`
-        : `/orders/${id}/video-processing/from-media/${encodeURIComponent(sourceId)}?${query}`;
-      const result=await api('POST',path,{});
-      toast(t('video_queued')+' · '+result.job_id);reload();
-    });
+    for (const source of sourceVideos) {
+      act('translate_video', async () => {
+        const target = await pick('Выберите язык перевода', languages.map(([value,label]) => ({value,label})));
+        if (!target) return;
+        const query = new URLSearchParams({target_language:target});
+        const result = await api('POST', `/orders/${id}/video-processing/from-media/${encodeURIComponent(source.id)}?${query}`, {});
+        toast(t('video_queued') + ' · ' + result.job_id);
+        reload();
+      });
+    }
   }
   if (role === 3 && o.executor_id == null && !['done', 'cancelled'].includes(o.status)) {
     act('take_order', async () => { await api('POST', `/orders/${id}/self-claim`, {}); reload(); }, 'go');
@@ -369,26 +362,30 @@ async function financePanel(o) {
 
 // ───────────── Новый заказ ─────────────
 route('new', async () => {
-  const D = S.draft || (S.draft = {files: [], lat: null, lon: null, videoFile: null, videoUploadId: null, createdOrderId: null});
+  const D = S.draft || (S.draft = {files: [], lat: null, lon: null, createdOrderId: null});
   const [deps, clients] = await Promise.all([api('GET', '/departments'), [1, 2, 7].includes(S.me.role) ? api('GET', '/users?role=4') : []]);
   const role = S.me.role;
   const title = h('input', {}), descr = h('textarea', {}), address = h('input', {});
   const svc = selectEl([{value: '', label: '—'}, ...(S.pub.service_types || []).map((x) => ({value: x, label: x}))], '');
   const dep = selectEl([{value: '', label: '—'}, ...deps.map((x) => ({value: x.id, label: x.name}))], '');
-  const cli = selectEl([{value: '', label: '—'}, ...clients.map((x) => ({value: x.id, label: personName(x) + (x.company_name ? ' · ' + x.company_name : '')}))], '');
+  const cli = selectEl([{value: '', label: '—'}, ...clients.map((x) => ({value: x.id, label: personName(x) + (x.company_name ? ' · ' + x.company_name : ''))}))], '');
   const loc = h('div', {class: 'muted', style: 'margin:8px 0'});
   const showLoc = () => { loc.textContent = D.lat != null ? `${t('location')}: ${D.lat.toFixed(5)}, ${D.lon.toFixed(5)}` : t('location_none'); };
   showLoc();
   const files = fileList(D.files);
-  const videoInfo = h('div', {class: 'muted small'}, D.videoFile ? D.videoFile.name + ' · ' + fmtBytes(D.videoFile.size) : t('video_not_selected'));
-  const videoLang = selectEl([
-    {value:'uk',label:'Українська'}, {value:'ru',label:'Русский'}, {value:'de',label:'Deutsch'},
-    {value:'fr',label:'Français'}, {value:'it',label:'Italiano'}, {value:'en',label:'English'},
-    {value:'ar',label:'العربية'}, {value:'pt',label:'Português'}, {value:'es',label:'Español'},
-    {value:'bg',label:'Български'}, {value:'pl',label:'Polski'}, {value:'cs',label:'Čeština'},
-    {value:'sk',label:'Slovenčina'}, {value:'lt',label:'Lietuvių'}, {value:'lv',label:'Latviešu'}, {value:'no',label:'Norsk'}
-  ], 'uk');
-  const refreshVideoInfo = () => { videoInfo.textContent = D.videoFile ? D.videoFile.name + ' · ' + fmtBytes(D.videoFile.size) : t('video_not_selected'); };
+  const preview = h('div', {class:'gallery'});
+  const refreshPreview = () => {
+    preview.replaceChildren();
+    for (const f of D.files) {
+      if (!f || !f.type || !(f.type.startsWith('image/') || f.type.startsWith('video/'))) continue;
+      const url = URL.createObjectURL(f);
+      const card = h('div', {class:'fcard'});
+      if (f.type.startsWith('image/')) card.append(h('img', {src:url, alt:f.name, style:'max-width:100%;max-height:260px;object-fit:contain'}));
+      else card.append(h('video', {src:url, controls:true, preload:'metadata', style:'width:100%;max-height:320px'}));
+      card.append(h('div', {class:'ffoot'}, h('b', {class:'fname'}, f.name), h('div', {class:'muted small'}, fmtBytes(f.size))));
+      preview.append(card);
+    }
+  };
   const submit = guard(async () => {
     if (!D.createdOrderId && !title.value.trim()) throw new Error(t('title'));
     let orderId = D.createdOrderId;
@@ -398,36 +395,22 @@ route('new', async () => {
       const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
       orderId = o.id;
       D.createdOrderId = orderId;
-      try { await uploadFiles(`/orders/${orderId}/media`, D.files); } catch (e) { toast(e.message, true); }
-      D.files = [];
     }
-    if (D.videoFile) {
-      videoInfo.textContent = t('video_uploading');
-      try {
-        const result = await uploadVideoForOrder(orderId, D.videoFile, videoLang.value, D.videoUploadId, (pct, part, total) => {
-          videoInfo.textContent = `${t('video_uploading')}: ${pct}% (${fmtBytes(part)} / ${fmtBytes(total)})`;
-        });
-        videoInfo.textContent = t('video_queued') + ' · ' + result.job_id;
-        D.videoFile = null; D.videoUploadId = null;
-      } catch (e) {
-        videoInfo.textContent = t('video_upload_failed') + ': ' + e.message;
-        throw e;
-      }
+    if (D.files.length) {
+      await uploadFiles(`/orders/${orderId}/media`, D.files);
+      D.files = [];
     }
     S.draft = null;
     toast(t('order_created'));
     location.hash = '#/order/' + orderId;
   });
-  const chooseVideo = guard(async () => {
-    const picked = await chooseFiles('video/*');
+  const addAttachments = guard(async () => {
+    const picked = await chooseFiles('');
     if (!picked.length) return;
-    const file = picked[0];
-    if (!file.size) throw new Error('Видеофайл пустой');
-    D.videoFile = file;
-    D.videoUploadId = 'hm-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
-    refreshVideoInfo();
+    D.files.push(...picked);
+    files.redraw();
+    refreshPreview();
   });
-  const removeVideo = () => { D.videoFile = null; D.videoUploadId = null; refreshVideoInfo(); };
   return h('div', {class: 'card'}, h('h1', {}, t('new_order')),
     h('label', {}, t('title')), title, h('label', {}, t('service_type')), svc, h('label', {}, t('description')), descr, h('label', {}, t('address')), address,
     h('label', {}, t('department')), dep, [1, 2, 7].includes(S.me.role) ? [h('label', {}, t('client')), cli] : null,
@@ -436,16 +419,12 @@ route('new', async () => {
       h('button', {class: 'ghost', onclick: guard(async () => { const p = await mapPicker(D.lat || 50.4501, D.lon || 30.5234); if (p) { D.lat = p.lat; D.lon = p.lon; showLoc(); } })}, t('set_location'))),
     loc,
     h('div', {class: 'row'},
-      h('button', {class: 'ghost', onclick: guard(async () => { D.files.push(...await chooseFiles('')); files.redraw(); })}, t('attach_file')),
-      h('button', {class: 'ghost', onclick: guard(async () => { const x = await cameraCapture(); if (x) { D.files.push(x); files.redraw(); } })}, t('take_photo'))),
+      h('button', {class: 'ghost', onclick: addAttachments}, t('attach_file')),
+      h('button', {class: 'ghost', onclick: guard(async () => { const x = await cameraCapture(); if (x) { D.files.push(x); files.redraw(); refreshPreview(); } })}, t('take_photo'))),
     files.el,
-    h('div', {class:'card', style:'margin-top:14px'},
-      h('b', {}, t('video_processing')),
-      h('p', {class:'muted small'}, t('video_processing_hint')),
-      h('div', {class:'row'}, h('button', {class:'ghost', onclick: chooseVideo}, t('video_select')),
-        h('button', {class:'ghost', onclick: removeVideo, disabled: !D.videoFile}, t('video_remove'))),
-      videoInfo, h('label', {}, t('video_target_language')), videoLang),
-    h('div', {style: 'margin-top:14px'}, h('button', {onclick: submit}, D.createdOrderId ? t('video_retry_submit') : t('submit'))));
+    preview,
+    h('p', {class:'muted small'}, 'Видео и фотографии прикрепляются к заказу как обычные файлы. Перевод, если он понадобится, запускается отдельно из карточки заказа.'),
+    h('div', {style: 'margin-top:14px'}, h('button', {onclick: submit}, D.createdOrderId ? t('submit') : t('submit'))));
 }, [1, 2, 3, 4, 5, 6, 7]);
 
 // ───────────── Пользователи ─────────────
