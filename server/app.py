@@ -970,7 +970,7 @@ def process_job(job_id: str):
             raise RuntimeError("Речь не распознана. Проверьте звуковую дорожку.")
         detected = source_language or info.language or "unknown"
         if not target_language:
-            transcript = "\\n".join(x["text"] for x in rows)
+            transcript = "\n".join(x["text"] for x in rows)
             update_job(job_id, status="done", progress=100,
                        message="Распознавание оригинала завершено; перевод не запрашивался",
                        source_language=detected, transcript=transcript, translated_text="",
