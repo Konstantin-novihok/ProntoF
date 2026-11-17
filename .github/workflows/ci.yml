@@ -171,6 +171,56 @@ jobs:
               assert abs(settled.json()["cost_price"] - 53) < 0.01, settled.json()
               print("Collaboration, private report files, warehouse reservation and multi-executor costing passed.")
           PY
+      - name: Verify immediate order visibility, creator history and physical attachment deletion
+        run: |
+          mkdir -p "$RUNNER_TEMP/hm-upload-lifecycle"
+          DATA_DIR="$RUNNER_TEMP/hm-upload-lifecycle" WEB_DIR="$GITHUB_WORKSPACE/home-master/web" SECRET_KEY="ci-upload-secret-key-012345678901234567890123456789" OWNER_PASSWORD="ci-upload-owner-password" PYTHONPATH="$GITHUB_WORKSPACE/home-master/server" python - <<'PY'
+          import json
+          from pathlib import Path
+          from fastapi.testclient import TestClient
+          import server
+
+          with TestClient(server.app) as client:
+              with server.SessionLocal() as db:
+                  customer = server.User(username="upload_creator", password_hash=server.hash_password("creator-password"), role=server.CLIENT, full_name="Upload Creator")
+                  db.add(customer); db.commit()
+                  token = server.make_token(customer)
+                  uid = customer.id
+              headers = {"Authorization": "Bearer " + token}
+              created = client.post("/orders", headers=headers, json={
+                  "title":"Immediate upload order","description":"before edit","address":"Initial address",
+                  "service_type":"Repair","upload_session":True
+              })
+              assert created.status_code == 200, created.text
+              oid = created.json()["id"]
+              assert created.json()["status"] == "new", created.json()["status"]
+              edited = client.patch(f"/orders/{oid}", headers=headers, json={
+                  "title":"Updated upload order","description":"after edit","address":"New address","service_type":"Maintenance"
+              })
+              assert edited.status_code == 200, edited.text
+              history = client.get(f"/orders/{oid}/history", headers=headers)
+              assert history.status_code == 200, history.text
+              edit_event = next(x for x in history.json() if x["action"] == "edit_order")
+              changes = json.loads(edit_event["details"])
+              assert changes["title"] == {"before":"Immediate upload order","after":"Updated upload order"}
+              assert changes["service_type"] == {"before":"Repair","after":"Maintenance"}
+              uploaded = client.post(f"/orders/{oid}/media", headers=headers,
+                                     files={"file":("proof.txt",b"complete attachment","text/plain")})
+              assert uploaded.status_code == 200, uploaded.text
+              mid = uploaded.json()["id"]
+              with server.SessionLocal() as db:
+                  media = db.get(server.Media, mid)
+                  disk_path = Path(server.media_path(media))
+                  assert disk_path.is_file()
+              removed = client.delete(f"/orders/{oid}/media/{mid}", headers=headers)
+              assert removed.status_code == 200 and removed.json()["deleted_from_disk"] is True, removed.text
+              assert not disk_path.exists()
+              with server.SessionLocal() as db:
+                  assert db.get(server.Media, mid) is None
+              history = client.get(f"/orders/{oid}/history", headers=headers).json()
+              assert any(x["action"] == "delete_order_media" and "proof.txt" in x["details"] for x in history)
+              print("Immediate order visibility, creator edit history, media removal and deletion audit passed.")
+          PY
       - name: Import video worker and render a short Ukrainian MP4 with Piper
         run: |
           sudo apt-get update
