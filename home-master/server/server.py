@@ -986,7 +986,12 @@ def order_history(oid: int, user: User = Depends(current_user), db: Session = De
         from collaboration import capability, participant
         if not participant(db, oid, user.id) and not capability(db, user, "order_assign"):
             raise HTTPException(403, "История доступна участникам заказа и уполномоченным сотрудникам")
-    rows = db.scalars(select(Audit).where(Audit.target_type == "order", Audit.target_id == oid).order_by(Audit.id))
+    history_query = select(Audit).where(Audit.target_type == "order", Audit.target_id == oid)
+    if user.role not in STAFF_ROLES:
+        history_query = history_query.where(Audit.action.in_((
+            "edit_order", "upload_media", "delete_order_media", "delete_order_media_failed"
+        )))
+    rows = db.scalars(history_query.order_by(Audit.id))
     return [audit_out(db, a) for a in rows]
 
 
