@@ -406,23 +406,41 @@ route('new', async () => {
       preview.append(card);
     }
   };
+  const uploadStatus = h('p', {class:'muted small', style:'min-height:1.2em'});
+  let submitButton = null;
   const submit = guard(async () => {
     if (!D.createdOrderId && !title.value.trim()) throw new Error(t('title'));
-    let orderId = D.createdOrderId;
-    if (!orderId) {
-      const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
-        department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null};
-      const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
-      orderId = o.id;
-      D.createdOrderId = orderId;
+    if (submitButton) submitButton.disabled = true;
+    try {
+      let orderId = D.createdOrderId;
+      if (!orderId) {
+        uploadStatus.textContent = 'Создание заказа…';
+        const payload = {title: title.value, description: descr.value, address: address.value, lat: D.lat, lon: D.lon, service_type: svc.value,
+          department_id: dep.value ? +dep.value : null, client_id: cli.value ? +cli.value : null};
+        const o = roleIn(3) ? await api('POST', '/orders/create-as-executor', payload) : await api('POST', '/orders', payload);
+        orderId = o.id;
+        D.createdOrderId = orderId;
+      }
+      if (D.files.length) {
+        const pending = [...D.files];
+        for (let i = 0; i < pending.length; i++) {
+          const file = pending[i];
+          uploadStatus.textContent = `Подготовка загрузки ${i + 1}/${pending.length}: ${file.name}`;
+          await uploadFileWithProgress(`/orders/${orderId}/media`, file, (loaded, total) => {
+            const percent = total ? Math.round(loaded / total * 100) : 0;
+            uploadStatus.textContent = `Загрузка ${i + 1}/${pending.length}: ${file.name} — ${percent}% (${fmtBytes(loaded)} / ${fmtBytes(total)})`;
+          });
+          const index = D.files.indexOf(file);
+          if (index >= 0) D.files.splice(index, 1);
+          files.redraw();
+        }
+      }
+      S.draft = null;
+      toast(t('order_created'));
+      location.hash = '#/order/' + orderId;
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
-    if (D.files.length) {
-      await uploadFiles(`/orders/${orderId}/media`, D.files);
-      D.files = [];
-    }
-    S.draft = null;
-    toast(t('order_created'));
-    location.hash = '#/order/' + orderId;
   });
   const addAttachments = guard(async () => {
     const picked = await chooseFiles('');
@@ -444,7 +462,8 @@ route('new', async () => {
     files.el,
     preview,
     h('p', {class:'muted small'}, 'Видео и фотографии прикрепляются к заказу как обычные файлы. Перевод, если он понадобится, запускается отдельно из карточки заказа.'),
-    h('div', {style: 'margin-top:14px'}, h('button', {onclick: submit}, D.createdOrderId ? t('submit') : t('submit'))));
+    uploadStatus,
+    h('div', {style: 'margin-top:14px'}, (submitButton = h('button', {onclick: submit}, t('submit')))));
 }, [1, 2, 3, 4, 5, 6, 7]);
 
 // ───────────── Пользователи ─────────────
